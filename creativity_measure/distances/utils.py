@@ -8,5 +8,5 @@ from torch.distributions import MultivariateNormal
 def log_p_Y_given_X(y, x, gamma):
     """y, x: (..., d)   gamma: scalar  ->  (...)."""
     d = x.shape[-1]
-    cov = float(gamma) * torch.eye(d, device=y.device, dtype=y.dtype)
+    cov = float(gamma) * torch.eye(d, device=x.device, dtype=x.dtype)
     return MultivariateNormal(float(gamma) * x, cov).log_prob(y)
