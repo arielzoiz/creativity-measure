@@ -136,3 +136,19 @@ def test_f_identity_vs_f_square_differ():
         "z_gamma is likely not feeding f_square correctly.\n"
         f"out_identity={out_identity}\nout_square={out_square}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 4: f_identity reduces to dqv.sum end-to-end (regression)
+# ---------------------------------------------------------------------------
+
+def test_f_identity_equals_dqv_sum():
+    from creativity_measure.distances.global_iem import sde_elements_one_to_many
+    dist = GlobalIEMDistance(p, gammas, num_eps=8, f=f_identity, seed=123)
+    device, dtype = X.device, X.dtype
+    g = gammas.to(device=device, dtype=dtype)
+    W, dW = dist._brownian(2, device, dtype, g)
+    z, dqv = sde_elements_one_to_many(x_refs[0:1], X, W, dW, g, p)
+    expected = dqv.sum(0).mean(0).clamp_min(0).sqrt()        # (B,)
+    actual = dist.pairwise(X, x_refs[0:1]).squeeze(1)        # (B,)
+    assert torch.allclose(actual, expected)

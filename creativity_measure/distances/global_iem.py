@@ -15,7 +15,7 @@ from creativity_measure.distances.utils import log_p_Y_given_X
 
 
 # ----------------------------------------------------------------------
-# Pluggable IEM activations. Signature: (z_gamma, dqv, alpha) -> (..., G),
+# Pluggable IEM activations. Signature: (z_gamma, dqv, alpha) -> (N_eps, G),
 # summing the integrand over the gamma axis (dim 0).
 # ----------------------------------------------------------------------
 
@@ -30,7 +30,7 @@ def f_square(z_gamma, dqv, alpha):
 
 
 def score_diff_y(y, x, gamma, density: Density):
-    """s(y, x, gamma). y: (B, d), x: (B, d), gamma scalar -> (B, d)."""
+    """s(y, x, gamma). y: (B, d), x: (B, d), gamma: 0-d tensor (scalar-shaped) -> (B, d)."""
     y = y.detach().clone().requires_grad_(True)
     g1 = torch.autograd.grad(log_p_Y_given_X(y, x, gamma).sum(), y)[0]
     g2 = torch.autograd.grad(density.log_p_Y(y, gamma).sum(), y)[0]
@@ -105,9 +105,9 @@ class GlobalIEMDistance:
         self.seed = seed
         self.verbose = verbose
 
-    def _brownian(self, d, device, dtype):
-        num_gamma = self.gammas.shape[0]
-        dgam = self.gammas[1:] - self.gammas[:-1]
+    def _brownian(self, d, device, dtype, gammas):
+        num_gamma = gammas.shape[0]
+        dgam = gammas[1:] - gammas[:-1]
         gen = torch.Generator(device=device).manual_seed(self.seed)
         dW = torch.randn(num_gamma - 1, self.num_eps, 1, d,
                          device=device, dtype=dtype, generator=gen) * dgam.sqrt().view(-1, 1, 1, 1)
@@ -120,12 +120,13 @@ class GlobalIEMDistance:
         device, dtype = X.device, X.dtype
         d = X.shape[1]
         alpha = 1.0 / d
-        W, dW = self._brownian(d, device, dtype)
+        gammas = self.gammas.to(device=device, dtype=dtype)
+        W, dW = self._brownian(d, device, dtype, gammas)
         R = x_refs.shape[0]
         cols = []
         for r in range(R):
             z, dqv = sde_elements_one_to_many(
-                x_refs[r:r+1], X, W, dW, self.gammas, self.density)
+                x_refs[r:r+1], X, W, dW, gammas, self.density)
             iem_sq = self.f(z, dqv, alpha)                  # (N_eps, G)
             cols.append(iem_sq.mean(0).clamp_min(0).sqrt())  # (B,) = D_IEM_f(X, x_refs[r])
             if self.verbose and (r + 1) % max(1, R // 4) == 0:
