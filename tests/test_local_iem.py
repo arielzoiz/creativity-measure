@@ -1,7 +1,6 @@
 """Tests for creativity_measure.distances.local_iem (Task 3)."""
 import math
 import torch
-import pytest
 from torch.distributions import MultivariateNormal, Categorical, MixtureSameFamily
 
 from creativity_measure.density import Density
@@ -115,4 +114,23 @@ def test_self_distance_approx_zero():
     self_dist = D[0, 0].item()
     assert self_dist < 1e-8, (
         f"Self-distance D([2,0], [2,0]) = {self_dist}, expected ~0"
+    )
+
+
+def test_compute_G_mode_vs_midpoint():
+    """G at an on-mode point should differ meaningfully from G at the midpoint.
+
+    The GMM has modes at [±2, 0]; the midpoint [0, 0] is between modes.
+    The IEM metric tensor should be sensitive to this, so the trace of G
+    at the mode [2, 0] must not be approximately equal to the trace at [0, 0].
+    This catches gamma-weighting / noise-draw bugs that the PSD test cannot.
+    """
+    X_test = torch.tensor([[2., 0.], [0., 0.]], dtype=dtype)
+    G = compute_G(X_test, p.log_p_Y_scalar, gammas, num_noises=5, seed=42)
+    tr_mode = torch.diagonal(G[0], dim1=-2, dim2=-1).sum(-1)   # scalar
+    tr_mid  = torch.diagonal(G[1], dim1=-2, dim2=-1).sum(-1)   # scalar
+    assert not torch.allclose(tr_mode, tr_mid, rtol=0.1), (
+        f"Traces are too similar: tr(G[mode])={tr_mode.item():.6f}, "
+        f"tr(G[mid])={tr_mid.item():.6f}. "
+        "Expected the metric to differ between on-mode and between-modes points."
     )

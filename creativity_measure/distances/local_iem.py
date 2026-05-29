@@ -19,15 +19,16 @@ def compute_G(X, log_p_Y_scalar, gammas, num_noises=50, seed=123):
     Returns:
         G: (B, d, d) positive semi-definite metric tensor per point.
     """
-    torch.manual_seed(seed)
     hess_fn = jacfwd(jacrev(log_p_Y_scalar, argnums=0), argnums=0)
 
+    gammas = gammas.to(device=X.device)
     X = X.to(dtype=gammas.dtype)
     dgam = gammas[1:] - gammas[:-1]
     B, d = X.shape
     num_gamma = gammas.shape[0]
 
-    eps = torch.randn((num_noises, B, num_gamma, d), device=X.device, dtype=X.dtype)
+    gen = torch.Generator(device=X.device).manual_seed(seed)
+    eps = torch.randn((num_noises, B, num_gamma, d), device=X.device, dtype=X.dtype, generator=gen)
     ggrid = gammas.view(1, 1, num_gamma, 1)
     y = ggrid * X.view(1, B, 1, d) + ggrid.sqrt() * eps      # (num_noises, B, N_gamma, d)
     y_flat = y.reshape(-1, d)
