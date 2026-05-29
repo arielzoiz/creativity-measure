@@ -1,5 +1,4 @@
 # creativity_measure/tilt.py
-import torch
 from creativity_measure.density import Density
 
 
