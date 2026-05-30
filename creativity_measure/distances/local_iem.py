@@ -21,8 +21,7 @@ def compute_G(X, log_p_Y_scalar, gammas, num_noises=50, seed=123):
     """
     hess_fn = jacfwd(jacrev(log_p_Y_scalar, argnums=0), argnums=0)
 
-    gammas = gammas.to(device=X.device)
-    X = X.to(dtype=gammas.dtype)
+    gammas = gammas.to(device=X.device, dtype=X.dtype)
     dgam = gammas[1:] - gammas[:-1]
     B, d = X.shape
     num_gamma = gammas.shape[0]

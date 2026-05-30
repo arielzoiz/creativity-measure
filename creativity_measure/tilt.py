@@ -39,7 +39,7 @@ def grid_normalize(log_q_unnorm, cell_area):
     """
     shape = log_q_unnorm.shape
     flat = log_q_unnorm.reshape(-1)
-    flat = flat - flat[~flat.isnan()].max()      # stabilize (nan-safe)
+    flat = flat - flat[~flat.isnan()].max()      # max-stabilize for exp()
     q_un = flat.exp()
     Z = q_un.sum() * cell_area
     q = (q_un / Z).reshape(shape)
