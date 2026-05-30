@@ -1,8 +1,7 @@
 from creativity_measure.density import Density
 from creativity_measure.distances import (
-    Distance, EuclideanDistance, compute_G, LocalIEMDistance,
-    GlobalIEMDistance, score_diff_y, sde_elements_one_to_many,
-    f_identity, f_square,
+    Distance, EuclideanDistance, LocalIEMDistance,
+    GlobalIEMDistance, GlobalIEMDistance2,
 )
 from creativity_measure.tilt import (
     expected_distance, tilted_log_density, grid_normalize,
