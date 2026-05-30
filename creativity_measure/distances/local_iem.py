@@ -4,7 +4,7 @@ from torch.func import vmap, jacrev, jacfwd
 from creativity_measure.density import Density
 
 
-def compute_G(X, log_p_Y_scalar, gammas, num_noises=50, seed=123):
+def compute_G(X, log_p_Y_scalar, gammas, num_noises=50, chunk_size=64, seed=123):
     """
     Local IEM metric tensor G(x) (paper Thm. 2, Eq. 5). Was compute_local_M
     in the notebook; generalized to d dims and a passed-in scalar log p_Y.
@@ -12,9 +12,12 @@ def compute_G(X, log_p_Y_scalar, gammas, num_noises=50, seed=123):
     Args:
         X:             (B, d)
         log_p_Y_scalar: callable (y: (d,), gamma scalar) -> scalar
-        gammas:        (N_gamma,)  e.g. logspace(-4, 4, 200, base=2)
-        num_noises:    MC samples for E[...] over w_gamma
-        seed:          RNG seed
+        gammas:         (N_gamma,)  e.g. logspace(-4, 4, 200, base=2)
+        num_noises:     MC samples for E[...] over w_gamma
+        seed:           RNG seed
+        chunk_size:     internal batch size over points, to cap peak memory.
+                        Result is identical regardless of chunk_size.
+    
 
     Returns:
         G: (B, d, d) positive semi-definite metric tensor per point.
@@ -26,17 +29,24 @@ def compute_G(X, log_p_Y_scalar, gammas, num_noises=50, seed=123):
     B, d = X.shape
     num_gamma = gammas.shape[0]
 
-    gen = torch.Generator(device=X.device).manual_seed(seed)
-    eps = torch.randn((num_noises, B, num_gamma, d), device=X.device, dtype=X.dtype, generator=gen)
-    ggrid = gammas.view(1, 1, num_gamma, 1)
-    y = ggrid * X.view(1, B, 1, d) + ggrid.sqrt() * eps      # (num_noises, B, N_gamma, d)
-    y_flat = y.reshape(-1, d)
-    g_flat = ggrid.expand(num_noises, B, num_gamma, 1).reshape(-1)
+    Gs = []
+    for start in range(0, B, chunk_size):
+        X_chunk = X[start:start + chunk_size]
+        B_chunk = X_chunk.shape[0]
 
-    H = vmap(hess_fn)(y_flat, g_flat).view(num_noises * B * num_gamma, d, d)
-    H2 = torch.bmm(H, H).view(num_noises, B, num_gamma, d, d).mean(0)   # (B, N_gamma, d, d)
-    weighted = H2 * (gammas ** 2).view(1, num_gamma, 1, 1)
-    G = (weighted[:, :-1] * dgam.view(1, num_gamma - 1, 1, 1)).sum(1)   # (B, d, d)
+        gen = torch.Generator(device=X.device).manual_seed(seed)
+        eps = torch.randn((num_noises, B_chunk, num_gamma, d), device=X.device, dtype=X.dtype, generator=gen)
+        ggrid = gammas.view(1, 1, num_gamma, 1)
+        y = ggrid * X_chunk.view(1, B_chunk, 1, d) + ggrid.sqrt() * eps      # (num_noises, B_chunk, N_gamma, d)
+        y_flat = y.reshape(-1, d)
+        g_flat = ggrid.expand(num_noises, B_chunk, num_gamma, 1).reshape(-1)
+
+        H = vmap(hess_fn)(y_flat, g_flat).view(num_noises * B_chunk * num_gamma, d, d)
+        H2 = torch.bmm(H, H).view(num_noises, B_chunk, num_gamma, d, d).mean(0)   # (B_chunk, N_gamma, d, d)
+        weighted = H2 * (gammas ** 2).view(1, num_gamma, 1, 1)
+        G_chunk = (weighted[:, :-1] * dgam.view(1, num_gamma - 1, 1, 1)).sum(1)   # (B_chunk, d, d)
+        Gs.append(G_chunk)
+    G = torch.cat(Gs, dim=0)   # (B, d, d)
     return G
 
 
