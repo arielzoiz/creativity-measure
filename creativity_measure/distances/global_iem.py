@@ -89,7 +89,10 @@ class GlobalIEMDistance:
         self.num_eps = num_eps
         self.seed = seed
         self.verbose = verbose
-        self.score_fn = score_fn   # reserved; not yet consumed
+        # TODO: when score_fn is provided, pass it through pairwise ->
+        #       iem_sq_increments_one_to_many -> marginal_score and use it
+        #       instead of autograd, to support pre-learned score models.
+        self.score_fn = score_fn
 
     def _brownian(
         self,
