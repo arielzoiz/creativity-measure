@@ -71,7 +71,9 @@ class LocalIEMDistance:
 
     def pairwise(self, X, x_refs):
         """X: (B, d), x_refs: (R, d) -> (B, R)."""
-        G = compute_G(X, self.density.log_p_Y_scalar, self.gammas,
+        # jacfwd/jacrev need a scalar-in/scalar-out callable; adapt the batched log_p_Y.
+        log_p_Y_scalar = lambda y, g: self.density.log_p_Y(y.unsqueeze(0), g).squeeze(0)
+        G = compute_G(X, log_p_Y_scalar, self.gammas,
                       num_noises=self.num_noises, seed=self.seed)     # (B, d, d)
         diff = X.unsqueeze(1) - x_refs.unsqueeze(0)                   # (B, R, d)
         Gdiff = torch.einsum('bde,bre->brd', G, diff)                 # (B, R, d)

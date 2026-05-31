@@ -39,11 +39,6 @@ def test_sample_shape():
     assert out.shape == (5, 2), f"Expected (5, 2), got {out.shape}"
 
 
-def test_log_p_Y_scalar_is_0dim():
-    out = p.log_p_Y_scalar(torch.zeros(2, dtype=dtype), torch.tensor(1.0))
-    assert out.ndim == 0, f"Expected 0-dim tensor, got ndim={out.ndim}"
-
-
 def test_no_sampler_raises():
     p2 = Density(log_pX, log_pY)
     try:
@@ -63,7 +58,6 @@ if __name__ == "__main__":
     test_log_p_X_shape()
     test_log_p_Y_shape()
     test_sample_shape()
-    test_log_p_Y_scalar_is_0dim()
     test_no_sampler_raises()
     test_sample_with_seed_reproducible()
     print("All smoke tests passed.")

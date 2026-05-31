@@ -64,6 +64,7 @@ def log_pY(y, gamma):
 
 
 p = Density(log_pX, log_pY, d=2)
+log_p_Y_scalar = lambda y, g: log_pY(y.unsqueeze(0), g).squeeze(0)
 
 # Coarse gammas for speed
 gammas = torch.logspace(-4, 4, 30, base=2, dtype=dtype)
@@ -78,12 +79,12 @@ x_refs = torch.tensor([[2., 0.], [-2., 0.], [0., 0.]], dtype=dtype)  # (3, 2)
 # ---------------------------------------------------------------------------
 
 def test_compute_G_shape():
-    G = compute_G(X, p.log_p_Y_scalar, gammas, num_noises=5, seed=0)
+    G = compute_G(X, log_p_Y_scalar, gammas, num_noises=5, seed=0)
     assert G.shape == (2, 2, 2), f"Expected (2, 2, 2), got {G.shape}"
 
 
 def test_compute_G_psd():
-    G = compute_G(X, p.log_p_Y_scalar, gammas, num_noises=5, seed=0)
+    G = compute_G(X, log_p_Y_scalar, gammas, num_noises=5, seed=0)
     eigvals = torch.linalg.eigvalsh(G)   # (B, d)
     assert (eigvals >= -1e-8).all(), (
         f"G has eigenvalue(s) < -1e-8: min={eigvals.min().item()}"
@@ -126,7 +127,7 @@ def test_compute_G_mode_vs_midpoint():
     This catches gamma-weighting / noise-draw bugs that the PSD test cannot.
     """
     X_test = torch.tensor([[2., 0.], [0., 0.]], dtype=dtype)
-    G = compute_G(X_test, p.log_p_Y_scalar, gammas, num_noises=5, seed=42)
+    G = compute_G(X_test, log_p_Y_scalar, gammas, num_noises=5, seed=42)
     tr_mode = torch.diagonal(G[0], dim1=-2, dim2=-1).sum(-1)   # scalar
     tr_mid  = torch.diagonal(G[1], dim1=-2, dim2=-1).sum(-1)   # scalar
     assert not torch.allclose(tr_mode, tr_mid, rtol=0.1), (

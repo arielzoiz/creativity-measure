@@ -32,10 +32,6 @@ class Density:
     def log_p_Y(self, y, gamma):
         return self._log_p_Y(y, gamma)
 
-    def log_p_Y_scalar(self, y, gamma):
-        """y: (d,), gamma scalar -> scalar. Needed by jacfwd/jacrev (local IEM)."""
-        return self._log_p_Y(y.unsqueeze(0), gamma).squeeze(0)
-
     def sample(self, n, seed=None):
         if self._sample is None:
             raise RuntimeError("This Density has no sampler; pass x_refs explicitly.")
