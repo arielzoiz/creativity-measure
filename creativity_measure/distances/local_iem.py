@@ -55,7 +55,7 @@ def _compute_G_vmap(
     return G
 
 
-def _compute_G_vmap_autograd(
+def compute_G_autograd(
     X: Float[Tensor, "B d"],
     density: Density,
     gammas: Float[Tensor, "N_gamma"],
@@ -113,7 +113,7 @@ def compute_G(
     seed: int = 123,
 ) -> Float[Tensor, "B d d"]:
     """
-    Tries vmap-based _compute_G_vmap first; falls back to _compute_G_vmap_autograd if vmap
+    Tries vmap-based _compute_G_vmap first; falls back to compute_G_autograd if vmap
     raises (e.g. when log_p_Y uses ops without a vmap batching rule).
     """
     log_p_Y_scalar = lambda y, g: density.log_p_Y(y.unsqueeze(0), g).squeeze(0)
@@ -121,7 +121,7 @@ def compute_G(
         return _compute_G_vmap(X, log_p_Y_scalar, gammas,
                          num_noises=num_noises, chunk_size=chunk_size, seed=seed)
     except Exception:
-        return _compute_G_vmap_autograd(X, density, gammas,
+        return compute_G_autograd(X, density, gammas,
                                   num_noises=num_noises, chunk_size=chunk_size, seed=seed)
 
 

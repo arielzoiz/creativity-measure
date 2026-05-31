@@ -1,9 +1,10 @@
 import torch
 from jaxtyping import Float
 from torch import Tensor
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
+@runtime_checkable
 class Distance(Protocol):
     """Any D usable in q_lambda. Returns pairwise D(X[b], x_refs[r])."""
     def pairwise(

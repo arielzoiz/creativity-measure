@@ -7,7 +7,7 @@ from creativity_measure.distances.utils import log_p_Y_given_X
 
 dtype = torch.float64
 B, d = 4, 2
-GAMMA = 2.5
+GAMMA = torch.tensor(2.5, dtype=torch.float64)
 
 
 @pytest.fixture(scope="module")
@@ -78,7 +78,7 @@ def test_at_conditional_mode():
     """y = gamma*x is the conditional mode; value should match reference."""
     torch.manual_seed(2)
     x = torch.randn(B, d, dtype=dtype)
-    gamma = 1.5
+    gamma = torch.tensor(1.5, dtype=dtype)
     y = float(gamma) * x  # conditional mode
     out = log_p_Y_given_X(y, x, gamma)
     ref = _reference(y, x, gamma)
