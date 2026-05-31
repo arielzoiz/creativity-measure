@@ -1,0 +1,20 @@
+[project]
+name = "creativity-measure"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "torch",
+  "jaxtyping",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pyright",
+  "beartype",
+  "pytest",
+]
+
+[tool.pyright]
+include = ["creativity_measure", "tests"]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
