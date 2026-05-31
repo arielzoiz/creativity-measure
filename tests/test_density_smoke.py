@@ -21,7 +21,7 @@ def log_pY(y, g):
                              MultivariateNormal(loc, cov)).log_prob(y)
 
 
-p = Density(log_pX, log_pY, sample=lambda n: mix.sample((n,)), d=2)
+p = Density(log_pX, log_pY, sample_fn=lambda n: mix.sample((n,)), d=2)
 
 
 def test_log_p_X_shape():

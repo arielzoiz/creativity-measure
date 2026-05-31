@@ -70,7 +70,7 @@ def _ring_sample(n):
 
 
 # Shared Density instance for all tests in this module
-_p = Density(_log_pX, _log_pY, sample=_ring_sample, d=2)
+_p = Density(_log_pX, _log_pY, sample_fn=_ring_sample, d=2)
 
 # ---------------------------------------------------------------------------
 # Small/coarse shared config

@@ -71,7 +71,7 @@ def sampler(n):
     return mix.sample(torch.Size((n,)))
 
 
-p = Density(log_pX, log_pY, sample=sampler, d=2)
+p = Density(log_pX, log_pY, sample_fn=sampler, d=2)
 
 # Coarse grid for speed
 gammas = torch.logspace(-10, 10, 40, base=2, dtype=dtype)
