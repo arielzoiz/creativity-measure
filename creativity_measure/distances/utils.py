@@ -1,4 +1,3 @@
-# creativity_measure/distances/utils.py
 # log p(y | x, gamma) = log N(y; gamma*x, gamma*I).
 # Ported from iem_creativity.ipynb (cell 3, log_p_Y_given_X).
 import torch

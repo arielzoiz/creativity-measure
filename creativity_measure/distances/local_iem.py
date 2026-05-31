@@ -1,4 +1,3 @@
-# creativity_measure/distances/local_iem.py
 from collections.abc import Callable
 
 import torch

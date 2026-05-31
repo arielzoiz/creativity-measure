@@ -1,4 +1,3 @@
-# creativity_measure/distances/global_marginal_iem.py
 #
 # Global IEM pairwise distance — conditional score formulation (Ohayon et al., ICLR 2026, Def. 1):
 #   D_IEM^2(x1,x2) = ∫_0^∞ E_W[ || s(Y1,x1,g) - s(Y2,x2,g) ||^2 ] dg

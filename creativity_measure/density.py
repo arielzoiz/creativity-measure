@@ -1,4 +1,3 @@
-# creativity_measure/density.py
 from dataclasses import dataclass
 
 import torch

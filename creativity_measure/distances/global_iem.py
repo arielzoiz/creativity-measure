@@ -1,4 +1,3 @@
-# creativity_measure/distances/global_iem.py
 #
 # Global IEM pairwise distance (Ohayon et al., ICLR 2026, Def. 1, f = identity):
 #   D_IEM^2(x1,x2) = ∫_0^∞ E_W[ || ∇log p_Yg(g x1 + W) - ∇log p_Yg(g x2 + W) ||^2 ] dg

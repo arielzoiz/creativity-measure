@@ -1,4 +1,3 @@
-# creativity_measure/tilt.py
 from jaxtyping import Float
 from torch import Tensor
 
