@@ -2,8 +2,8 @@
 End-to-end pipeline test for the IEM creativity-tilt demo.
 
 Uses a headless Agg backend and a small/coarse config for speed.
-Covers: LocalIEMDistance, GlobalIEMDistance (f_identity & f_square),
-EuclideanDistance, tilted_log_density, grid_normalize, plot_field.
+Covers: LocalIEMDistance, GlobalIEMDistance, EuclideanDistance,
+tilted_log_density, grid_normalize, plot_field.
 """
 
 import matplotlib
@@ -20,8 +20,6 @@ from creativity_measure import (
     EuclideanDistance,
     LocalIEMDistance,
     GlobalIEMDistance,
-    f_identity,
-    f_square,
     expected_distance,
     tilted_log_density,
     grid_normalize,
@@ -119,43 +117,24 @@ def test_local_iem_pipeline(grid, x_refs):
 
 
 # ---------------------------------------------------------------------------
-# 2. Global IEM pipeline (f_identity)
+# 2. Global IEM pipeline
 # ---------------------------------------------------------------------------
 
-def test_global_iem_f_identity_pipeline(grid, x_refs):
+def test_global_iem_pipeline(grid, x_refs):
     grid_points, XX, YY, cell_area = grid
 
-    D = GlobalIEMDistance(_p, GAMMAS_GLOBAL, num_eps=4, f=f_identity)
+    D = GlobalIEMDistance(_p, GAMMAS_GLOBAL, num_eps=4)
     log_q_un = tilted_log_density(grid_points, _p, D, x_refs, lam=LAM)
 
     assert log_q_un.shape == (GRID_N * GRID_N,)
-    assert log_q_un.isfinite().all(), "log_q_un has non-finite values (global IEM f_identity)"
+    assert log_q_un.isfinite().all(), "log_q_un has non-finite values (global IEM)"
 
     log_q, q, Z = grid_normalize(log_q_un, cell_area)
     integral = q.sum() * cell_area
     assert torch.allclose(
         integral, torch.tensor(1.0, dtype=dtype), atol=1e-6
     ), f"Integral should be ~1, got {integral.item()}"
-    assert (q >= 0).all(), "q has negative values (global IEM f_identity)"
-
-
-# ---------------------------------------------------------------------------
-# 3. Global IEM (f_square) runs and differs from f_identity
-# ---------------------------------------------------------------------------
-
-def test_global_iem_f_square_differs_from_f_identity(grid, x_refs):
-    grid_points, XX, YY, cell_area = grid
-
-    D_id = GlobalIEMDistance(_p, GAMMAS_GLOBAL, num_eps=4, f=f_identity, seed=42)
-    score_id = expected_distance(D_id, grid_points, x_refs)
-
-    D_sq = GlobalIEMDistance(_p, GAMMAS_GLOBAL, num_eps=4, f=f_square, seed=42)
-    score_sq = expected_distance(D_sq, grid_points, x_refs)
-
-    assert score_sq.isfinite().all(), "f_square scores contain non-finite values"
-    assert not torch.allclose(score_id, score_sq), (
-        "f_square expected_distance should differ from f_identity"
-    )
+    assert (q >= 0).all(), "q has negative values (global IEM)"
 
 
 # ---------------------------------------------------------------------------

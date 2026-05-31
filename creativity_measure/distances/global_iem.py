@@ -1,10 +1,10 @@
 # creativity_measure/distances/global_iem.py
 #
-# Global IEM pairwise distance (Ohayon et al., ICLR 2026, Def. 1):
-#   D_IEM^2(x1,x2) = ∫_0^∞ E_W[ || s(Y1,x1,g) - s(Y2,x2,g) ||^2 ] dg
-#   s(y,x,g) = grad_y log p(y|x,g) - grad_y log p_Y(y;g)   (= -denoising error, Tweedie)
-#   Under the shared path W, the conditional terms cancel, so s1 - s2 reduces to the
-#   marginal score difference grad log p_Yg(g x1 + W) - grad log p_Yg(g x2 + W) of Def. 1.
+# Global IEM pairwise distance (Ohayon et al., ICLR 2026, Def. 1, f = identity):
+#   D_IEM^2(x1,x2) = ∫_0^∞ E_W[ || ∇log p_Yg(g x1 + W) - ∇log p_Yg(g x2 + W) ||^2 ] dg
+#   then D_IEM = sqrt(D_IEM^2).
+# Direct transcription: differentiates the marginal log-density log p_Yg w.r.t. y at each
+# of the two noisy points (shared Brownian path W), with no conditional-score term.
 
 import torch
 from jaxtyping import Float
@@ -12,24 +12,21 @@ from torch import Tensor
 
 from creativity_measure._types import ScoreFn
 from creativity_measure.density import Density
-from creativity_measure.distances.utils import log_p_Y_given_X
 
 
-def score_diff_y(
+def marginal_score(
     y: Float[Tensor, "B d"],
-    x: Float[Tensor, "B d"],
     gamma: Float[Tensor, ""],
     density: Density,
 ) -> Float[Tensor, "B d"]:
     """
-    s(y, x, g) = ∇_y log p(y|x,g) - ∇_y log p_yg(y)   (= -denoising error, Tweedie)
-    y: (B, d), x: (B, d), gamma: 0-d tensor -> (B, d).
+    ∇_y log p_Yg(y) — the score of the (blurred) marginal density at y.
+    y: (B, d), gamma: 0-d tensor -> (B, d).
     """
-    y = y.detach().clone().requires_grad_(True) # isolate y so we can take d/dy at this point
+    y = y.detach().clone().requires_grad_(True)   # isolate y so we can take d/dy at this point
     # .sum() lets one grad call return per-row gradients (rows are independent)
-    g1 = torch.autograd.grad(log_p_Y_given_X(y, x, gamma).sum(), y)[0]
-    g2 = torch.autograd.grad(density.log_p_Y(y, gamma).sum(), y)[0]
-    return (g1 - g2).detach()
+    g = torch.autograd.grad(density.log_p_Y(y, gamma).sum(), y)[0]
+    return g.detach()
 
 
 def iem_sq_increments_one_to_many(
@@ -40,41 +37,37 @@ def iem_sq_increments_one_to_many(
     density: Density,
 ) -> Float[Tensor, "N_gamma_minus_1 N_eps G"]:
     """
-    IEM^2 increments (quadratic variation of the log-ratio process, Def. 1)
-    for one reference vs the whole batch X, sharing one Brownian path bank W.
+    IEM^2 increments (Def. 1) for one reference vs the whole batch X, shared Brownian path W.
     x_ref: (1, d), X: (G, d), W: (N_gamma, N_eps, 1, d)
     Returns:
-        quad_var_increments: (N_gamma-1, N_eps, G)  summed over gamma -> IEM^2
+        score_diff_sq_increments: (N_gamma-1, N_eps, G)  summed over gamma -> IEM^2
     """
     num_gamma, num_eps = W.shape[0], W.shape[1]
     G = X.shape[0]
     d = X.shape[1]
     dgamma = gammas[1:] - gammas[:-1]   # gamma step sizes (integration widths)
 
-    # Noisy observation paths y_g = g*x + W, shared W (so conditional scores cancel -> Def. 1)
+    # Noisy observation paths y_g = g*x + W, shared W across both points
     y1_path = gammas.view(-1, 1, 1, 1) * x_ref.view(1, 1, 1, d) + W     # (N_gamma, N_eps, 1, d)
     y2_path = gammas.view(-1, 1, 1, 1) * X.view(1, 1, G, d) + W         # (N_gamma, N_eps, G, d)
-    x_ref_b = x_ref.view(1, d).expand(num_eps, d).contiguous()
-    X_b     = X.view(1, G, d).expand(num_eps, G, d).reshape(num_eps * G, d).contiguous()
 
-    quad_var_increment_list = []
+    increment_list = []
     for i in range(num_gamma - 1):  # one step per integration interval
         gamma = gammas[i]
         y1 = y1_path[i].reshape(num_eps, d)
         y2 = y2_path[i].reshape(num_eps * G, d)
-        s1 = score_diff_y(y1, x_ref_b, gamma, density).view(num_eps, 1, d)
-        s2 = score_diff_y(y2, X_b, gamma, density).view(num_eps, G, d)
-        marginal_score_diff = s1 - s2       # (N_eps, G, d); = marginal score diff (Def. 1)
-        quad_var_increment = marginal_score_diff.pow(2).sum(-1) * dgamma[i]  # ||diff||^2 dg  (N_eps, G)
-        quad_var_increment_list.append(quad_var_increment)
+        s1 = marginal_score(y1, gamma, density).view(num_eps, 1, d)   # ∇log p_Yg(g x1 + W)
+        s2 = marginal_score(y2, gamma, density).view(num_eps, G, d)   # ∇log p_Yg(g x2 + W)
+        score_diff = s1 - s2                                          # (N_eps, G, d)
+        increment = score_diff.pow(2).sum(-1) * dgamma[i]             # ||score diff||^2 dg  (N_eps, G)
+        increment_list.append(increment)
 
-    quad_var_increments = torch.stack(quad_var_increment_list, dim=0)   # (N_gamma-1, N_eps, G)
-    return quad_var_increments
+    return torch.stack(increment_list, dim=0)   # (N_gamma-1, N_eps, G)
 
 
 class GlobalIEMDistance:
     """
-    Global IEM distance D_IEM(x, x') (Def. 1, f = identity) via shared-path score differences.
+    Global IEM distance D_IEM(x, x') (Def. 1, f = identity), direct marginal-score formulation.
     Builds one Brownian path bank and evaluates every reference against the whole X batch.
 
     Args:
@@ -109,7 +102,7 @@ class GlobalIEMDistance:
         dtype: torch.dtype,
         gammas: Float[Tensor, "N_gamma"],
     ) -> Float[Tensor, "N_gamma N_eps 1 d"]:
-        """Simulate num_eps Wiener paths W on the gamma grid"""
+        """Simulate num_eps Wiener paths W on the gamma grid."""
         num_gamma = gammas.shape[0]
         dgamma = gammas[1:] - gammas[:-1]
         generator = torch.Generator(device=device).manual_seed(self.seed)
@@ -125,20 +118,18 @@ class GlobalIEMDistance:
         X: Float[Tensor, "B d"],
         x_refs: Float[Tensor, "R d"],
     ) -> Float[Tensor, "B R"]:
-        """X: (B, d), x_refs: (R, d) -> (B, num_refs)  with D_IEM(X[b], x_refs[r])."""
+        """X: (B, d), x_refs: (R, d) -> (B, R)  with D_IEM(X[b], x_refs[r])."""
         device, dtype = X.device, X.dtype
         d = X.shape[1]
         gammas = self.gammas.to(device=device, dtype=dtype)
-        # builds the Brownian paths W once, reused across all references
-        W = self._brownian(d, device, dtype, gammas)
+        W = self._brownian(d, device, dtype, gammas)   # built once, reused across all references
         num_refs = x_refs.shape[0]
         cols = []
         for ref in range(num_refs):
-            quad_var_increments = iem_sq_increments_one_to_many(
+            increments = iem_sq_increments_one_to_many(
                 x_refs[ref:ref+1], X, W, gammas, self.density)
-            iem_sq = quad_var_increments.sum(0)             # (N_eps, G); Def. 1 integrand summed over gamma
-            cols.append(iem_sq.mean(0).clamp_min(0).sqrt()) # (B,) = D_IEM(X, x_refs[ref])
+            iem_sq = increments.sum(0)                      # (N_eps, G): ∫dg  -> IEM^2 per path
+            cols.append(iem_sq.mean(0).clamp_min(0).sqrt()) # (B,): E_W -> sqrt -> D_IEM
             if self.verbose and (ref + 1) % max(1, num_refs // 4) == 0:
                 print(f'  ref {ref+1}/{num_refs}')
-        pairwise_dist = torch.stack(cols, dim=1)   # (B, num_refs): D_IEM(X[b], x_refs[r])
-        return pairwise_dist
+        return torch.stack(cols, dim=1)                     # (B, num_refs)
