@@ -18,10 +18,7 @@ def marginal_score(
     gamma: Float[Tensor, ""],
     density: Density,
 ) -> Float[Tensor, "B d"]:
-    """
-    ∇_y log p_Yg(y) — the score of the (blurred) marginal density at y.
-    y: (B, d), gamma: 0-d tensor -> (B, d).
-    """
+    """∇_y log p_Yg(y) — the score of the (blurred) marginal density at y."""
     y = y.detach().clone().requires_grad_(True)   # isolate y so we can take d/dy at this point
     # .sum() lets one grad call return per-row gradients (rows are independent)
     g = torch.autograd.grad(density.log_p_Y(y, gamma).sum(), y)[0]
@@ -117,7 +114,7 @@ class GlobalIEMDistance:
         X: Float[Tensor, "B d"],
         x_refs: Float[Tensor, "R d"],
     ) -> Float[Tensor, "B R"]:
-        """X: (B, d), x_refs: (R, d) -> (B, R)  with D_IEM(X[b], x_refs[r])."""
+        """Returns D_IEM(X[b], x_refs[r]) for all b, r."""
         device, dtype = X.device, X.dtype
         d = X.shape[1]
         gammas = self.gammas.to(device=device, dtype=dtype)

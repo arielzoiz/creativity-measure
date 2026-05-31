@@ -10,10 +10,7 @@ def expected_distance(
     X: Float[Tensor, "B d"],
     x_refs: Float[Tensor, "R d"],
 ) -> Float[Tensor, "B"]:
-    """
-    E_{x'~p}[ D(x', X) ] approximated by the mean over the supplied refs.
-    distance: object with pairwise(X, x_refs) -> (B, R).
-    """
+    """E_{x'~p}[ D(x', X) ] approximated by the mean over the supplied refs."""
     return distance.pairwise(X, x_refs).mean(dim=1)
 
 
@@ -41,7 +38,6 @@ def grid_normalize(
 ) -> tuple[Float[Tensor, "..."], Float[Tensor, "..."], Float[Tensor, ""]]:
     """
     Normalize an unnormalized log-density evaluated on a regular grid.
-    Mirrors iem_creativity.ipynb cell 17 (Riemann sum for Z_lambda).
 
     Args:
         log_q_unnorm: (G,) or (gn, gn) tensor of log q (unnormalized)

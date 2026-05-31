@@ -17,21 +17,15 @@ def compute_G(
     seed: int = 123,
 ) -> Float[Tensor, "B d d"]:
     """
-    Local IEM metric tensor G(x) (paper Thm. 2, Eq. 5). Was compute_local_M
-    in the notebook; generalized to d dims and a passed-in scalar log p_Y.
+    Local IEM metric tensor G(x) (paper Thm. 2, Eq. 5).
 
     Args:
-        X:              (B, d)
         log_p_Y_scalar: callable (y: (d,), gamma scalar) -> scalar
-        gammas:         (N_gamma,)  e.g. logspace(-4, 4, 200, base=2)
         num_noises:     MC samples for E[...] over w_gamma
-        seed:           RNG seed
         chunk_size:     internal batch size over points, to cap peak memory.
                         Result is identical regardless of chunk_size.
-
-
     Returns:
-        G: (B, d, d) positive semi-definite metric tensor per point.
+        G: positive semi-definite metric tensor per point.
     """
     hess_fn = jacfwd(jacrev(log_p_Y_scalar, argnums=0), argnums=0)
 
@@ -91,7 +85,6 @@ class LocalIEMDistance:
         X: Float[Tensor, "B d"],
         x_refs: Float[Tensor, "R d"],
     ) -> Float[Tensor, "B R"]:
-        """X: (B, d), x_refs: (R, d) -> (B, R)."""
         # jacfwd/jacrev need a scalar-in/scalar-out callable; adapt the batched log_p_Y.
         log_p_Y_scalar = lambda y, g: self.density.log_p_Y(y.unsqueeze(0), g).squeeze(0)
         G = compute_G(X, log_p_Y_scalar, self.gammas,
