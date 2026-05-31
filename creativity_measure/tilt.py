@@ -1,21 +1,34 @@
 # creativity_measure/tilt.py
+from jaxtyping import Float
+from torch import Tensor
+
 from creativity_measure.density import Density
+from creativity_measure.distances.base import Distance
 
 
-def expected_distance(distance, X, x_refs):
+def expected_distance(
+    distance: Distance,
+    X: Float[Tensor, "B d"],
+    x_refs: Float[Tensor, "R d"],
+) -> Float[Tensor, "B"]:
     """
     E_{x'~p}[ D(x', X) ] approximated by the mean over the supplied refs.
     distance: object with pairwise(X, x_refs) -> (B, R).
-    X: (B, d), x_refs: (R, d) -> (B,).
     """
     return distance.pairwise(X, x_refs).mean(dim=1)
 
 
-def tilted_log_density(X, density: Density, distance, x_refs, lam):
+def tilted_log_density(
+    X: Float[Tensor, "B d"],
+    density: Density,
+    distance: Distance,
+    x_refs: Float[Tensor, "R d"],
+    lam: float,
+) -> Float[Tensor, "B"]:
     """
     Unnormalized log of  q_lambda(x) ∝ p(x) * exp(lambda * E_{x'~p}[D(x', x)]).
 
-    Returns log p(X) + lambda * E_{x'~p}[D(x', X)],  shape (B,).
+    Returns log p(X) + lambda * E_{x'~p}[D(x', X)].
     (The normalizer Z_lambda is omitted; use grid_normalize for 2D, or
     ignore it for sampling where it cancels.)
     """
@@ -23,7 +36,10 @@ def tilted_log_density(X, density: Density, distance, x_refs, lam):
     return density.log_p_X(X) + lam * score
 
 
-def grid_normalize(log_q_unnorm, cell_area):
+def grid_normalize(
+    log_q_unnorm: Float[Tensor, "..."],
+    cell_area: float,
+) -> tuple[Float[Tensor, "..."], Float[Tensor, "..."], Float[Tensor, ""]]:
     """
     Normalize an unnormalized log-density evaluated on a regular grid.
     Mirrors iem_creativity.ipynb cell 17 (Riemann sum for Z_lambda).

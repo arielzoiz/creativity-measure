@@ -1,23 +1,35 @@
 # creativity_measure/distances/local_iem.py
+from collections.abc import Callable
+
 import torch
-from torch.func import vmap, jacrev, jacfwd
+from jaxtyping import Float
+from torch import Tensor
+from torch.func import jacfwd, jacrev, vmap
+
 from creativity_measure.density import Density
 
 
-def compute_G(X, log_p_Y_scalar, gammas, num_noises=50, chunk_size=64, seed=123):
+def compute_G(
+    X: Float[Tensor, "B d"],
+    log_p_Y_scalar: Callable[[Float[Tensor, "d"], Float[Tensor, ""]], Float[Tensor, ""]],
+    gammas: Float[Tensor, "N_gamma"],
+    num_noises: int = 50,
+    chunk_size: int = 64,
+    seed: int = 123,
+) -> Float[Tensor, "B d d"]:
     """
     Local IEM metric tensor G(x) (paper Thm. 2, Eq. 5). Was compute_local_M
     in the notebook; generalized to d dims and a passed-in scalar log p_Y.
 
     Args:
-        X:             (B, d)
+        X:              (B, d)
         log_p_Y_scalar: callable (y: (d,), gamma scalar) -> scalar
         gammas:         (N_gamma,)  e.g. logspace(-4, 4, 200, base=2)
         num_noises:     MC samples for E[...] over w_gamma
         seed:           RNG seed
         chunk_size:     internal batch size over points, to cap peak memory.
                         Result is identical regardless of chunk_size.
-    
+
 
     Returns:
         G: (B, d, d) positive semi-definite metric tensor per point.
@@ -63,13 +75,23 @@ class LocalIEMDistance:
     autograd variant in iem_creativity.ipynb section 6.C.
     """
 
-    def __init__(self, density: Density, gammas, num_noises=50, seed=123):
+    def __init__(
+        self,
+        density: Density,
+        gammas: Float[Tensor, "N_gamma"],
+        num_noises: int = 50,
+        seed: int = 123,
+    ):
         self.density = density
         self.gammas = gammas
         self.num_noises = num_noises
         self.seed = seed
 
-    def pairwise(self, X, x_refs):
+    def pairwise(
+        self,
+        X: Float[Tensor, "B d"],
+        x_refs: Float[Tensor, "R d"],
+    ) -> Float[Tensor, "B R"]:
         """X: (B, d), x_refs: (R, d) -> (B, R)."""
         # jacfwd/jacrev need a scalar-in/scalar-out callable; adapt the batched log_p_Y.
         log_p_Y_scalar = lambda y, g: self.density.log_p_Y(y.unsqueeze(0), g).squeeze(0)
