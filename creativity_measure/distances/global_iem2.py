@@ -7,10 +7,18 @@
 # of the two noisy points (shared Brownian path W), with no conditional-score term.
 
 import torch
+from jaxtyping import Float
+from torch import Tensor
+
+from creativity_measure._types import ScoreFn
 from creativity_measure.density import Density
 
 
-def marginal_score(y, gamma, density: Density):
+def marginal_score(
+    y: Float[Tensor, "B d"],
+    gamma: Float[Tensor, ""],
+    density: Density,
+) -> Float[Tensor, "B d"]:
     """
     ∇_y log p_Yg(y) — the score of the (blurred) marginal density at y.
     y: (B, d), gamma: 0-d tensor -> (B, d).
@@ -21,7 +29,13 @@ def marginal_score(y, gamma, density: Density):
     return g.detach()
 
 
-def iem_sq_increments_one_to_many(x_ref, X, W, gammas, density: Density):
+def iem_sq_increments_one_to_many(
+    x_ref: Float[Tensor, "1 d"],
+    X: Float[Tensor, "G d"],
+    W: Float[Tensor, "N_gamma N_eps 1 d"],
+    gammas: Float[Tensor, "N_gamma"],
+    density: Density,
+) -> Float[Tensor, "N_gamma_minus_1 N_eps G"]:
     """
     IEM^2 increments (Def. 1) for one reference vs the whole batch X, shared Brownian path W.
     x_ref: (1, d), X: (G, d), W: (N_gamma, N_eps, 1, d)
@@ -61,16 +75,33 @@ class GlobalIEMDistance2:
         gammas:   integration grid, e.g. logspace(-10, 10, 200, base=2)
         num_eps:  Brownian path samples (variance reduction)
         seed:     RNG seed for the Brownian path bank
+        score_fn: Reserved for future use; when supplied, will replace autograd
+                  through `density.log_p_Y` with a learned score. Not yet consumed.
     """
 
-    def __init__(self, density: Density, gammas, num_eps=50, seed=123, verbose=False):
+    def __init__(
+        self,
+        density: Density,
+        gammas: Float[Tensor, "N_gamma"],
+        num_eps: int = 50,
+        seed: int = 123,
+        verbose: bool = False,
+        score_fn: ScoreFn | None = None,
+    ):
         self.density = density
         self.gammas = gammas
         self.num_eps = num_eps
         self.seed = seed
         self.verbose = verbose
+        self.score_fn = score_fn   # reserved; not yet consumed
 
-    def _brownian(self, d, device, dtype, gammas):
+    def _brownian(
+        self,
+        d: int,
+        device: torch.device,
+        dtype: torch.dtype,
+        gammas: Float[Tensor, "N_gamma"],
+    ) -> Float[Tensor, "N_gamma N_eps 1 d"]:
         """Simulate num_eps Wiener paths W on the gamma grid."""
         num_gamma = gammas.shape[0]
         dgamma = gammas[1:] - gammas[:-1]
@@ -82,7 +113,11 @@ class GlobalIEMDistance2:
         W[1:] = torch.cumsum(dW, dim=0)     # W[0]=0; cumulative sum of increments
         return W
 
-    def pairwise(self, X, x_refs):
+    def pairwise(
+        self,
+        X: Float[Tensor, "B d"],
+        x_refs: Float[Tensor, "R d"],
+    ) -> Float[Tensor, "B R"]:
         """X: (B, d), x_refs: (R, d) -> (B, R)  with D_IEM(X[b], x_refs[r])."""
         device, dtype = X.device, X.dtype
         d = X.shape[1]
