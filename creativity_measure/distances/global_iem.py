@@ -20,6 +20,8 @@ def marginal_score(
     density: Density,
 ) -> Float[Tensor, "B d"]:
     """∇_y log p_Yg(y) — the score of the (blurred) marginal density at y."""
+    if density.log_p_Y is None:
+        raise RuntimeError("Density must provide log_p_Y; score_fn support is not yet implemented")
     y = y.detach().clone().requires_grad_(True)   # isolate y so we can take d/dy at this point
     # .sum() lets one grad call return per-row gradients (rows are independent)
     g = torch.autograd.grad(density.log_p_Y(y, gamma).sum(), y)[0]

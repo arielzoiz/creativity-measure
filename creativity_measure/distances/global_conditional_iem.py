@@ -22,6 +22,8 @@ def score_diff_y(
     density: Density,
 ) -> Float[Tensor, "B d"]:
     """s(y, x, g) = ∇_y log p(y|x,g) - ∇_y log p_yg(y)   (= -denoising error, Tweedie)."""
+    if density.log_p_Y is None:
+        raise RuntimeError("Density must provide log_p_Y; score_fn support is not yet implemented")
     y = y.detach().clone().requires_grad_(True) # isolate y so we can take d/dy at this point
     # .sum() lets one grad call return per-row gradients (rows are independent)
     g1 = torch.autograd.grad(log_p_Y_given_X(y, x, gamma).sum(), y)[0]
