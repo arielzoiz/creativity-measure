@@ -63,7 +63,7 @@ EXPECTED_NAMES = [
     "LpDistance",
     "LocalIEMDistance",
     "GlobalIEMDistance",
-    "GlobalMarginalIEMDistance",
+    "GlobalConditionalIEMDistance",
     "expected_distance",
     "tilted_log_density",
     "grid_normalize",

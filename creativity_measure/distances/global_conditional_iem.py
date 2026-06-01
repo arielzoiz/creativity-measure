@@ -69,7 +69,7 @@ def iem_sq_increments_one_to_many(
     return quad_var_increments
 
 
-class GlobalMarginalIEMDistance(Distance):
+class GlobalConditionalIEMDistance(Distance):
     """
     Global IEM distance D_IEM(x, x') via conditional score differences (slower; see
     GlobalIEMDistance for the faster direct marginal-score formulation).
