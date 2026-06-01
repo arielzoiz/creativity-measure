@@ -60,7 +60,7 @@ def test_plot_samples_returns_axes():
 EXPECTED_NAMES = [
     "Density",
     "Distance",
-    "EuclideanDistance",
+    "LpDistance",
     "LocalIEMDistance",
     "GlobalIEMDistance",
     "GlobalMarginalIEMDistance",

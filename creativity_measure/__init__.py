@@ -1,6 +1,6 @@
 from creativity_measure.density import Density
 from creativity_measure.distances import (
-    Distance, EuclideanDistance, LocalIEMDistance,
+    Distance, LpDistance, LocalIEMDistance,
     GlobalIEMDistance, GlobalMarginalIEMDistance,
 )
 from creativity_measure.tilt import (

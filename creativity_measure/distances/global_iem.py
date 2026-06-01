@@ -11,6 +11,7 @@ from torch import Tensor
 
 from creativity_measure._types import ScoreFn
 from creativity_measure.density import Density
+from creativity_measure.distances.base import Distance
 
 
 def marginal_score(
@@ -61,7 +62,7 @@ def iem_sq_increments_one_to_many(
     return torch.stack(increment_list, dim=0)   # (N_gamma-1, N_eps, G)
 
 
-class GlobalIEMDistance:
+class GlobalIEMDistance(Distance):
     """
     Global IEM distance D_IEM(x, x') (Def. 1, f = identity), direct marginal-score formulation.
     Builds one Brownian path bank and evaluates every reference against the whole X batch.

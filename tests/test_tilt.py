@@ -3,7 +3,7 @@ import torch
 import pytest
 
 from creativity_measure.density import Density
-from creativity_measure.distances.base import EuclideanDistance
+from creativity_measure.distances.lp import LpDistance
 from creativity_measure.tilt import expected_distance, tilted_log_density, grid_normalize
 
 
@@ -27,7 +27,7 @@ def test_expected_distance_shape_and_ordering():
     X = torch.tensor([[0.0, 0.0], [10.0, 0.0]], dtype=torch.float64)
     x_refs = torch.zeros(5, 2, dtype=torch.float64)
 
-    result = expected_distance(EuclideanDistance(), X, x_refs)
+    result = expected_distance(LpDistance(2.0), X, x_refs)
 
     assert result.shape == (2,), f"Expected shape (2,), got {result.shape}"
 
@@ -50,7 +50,7 @@ def test_tilted_log_density_lam0_recovers_log_p():
     X = torch.tensor([[0.0, 0.0], [10.0, 0.0]], dtype=torch.float64)
     x_refs = torch.zeros(5, 2, dtype=torch.float64)
 
-    result = tilted_log_density(X, p, EuclideanDistance(), x_refs, lam=0.0)
+    result = tilted_log_density(X, p, LpDistance(2.0), x_refs, lam=0.0)
 
     assert result.shape == (2,)
     assert torch.allclose(result, torch.zeros(2, dtype=torch.float64)), (
@@ -67,7 +67,7 @@ def test_tilted_log_density_lam_positive_raises_far_point():
     X = torch.tensor([[0.0, 0.0], [10.0, 0.0]], dtype=torch.float64)
     x_refs = torch.zeros(5, 2, dtype=torch.float64)
 
-    result = tilted_log_density(X, p, EuclideanDistance(), x_refs, lam=1.0)
+    result = tilted_log_density(X, p, LpDistance(2.0), x_refs, lam=1.0)
 
     assert result.shape == (2,)
     assert result[1].item() > result[0].item(), (

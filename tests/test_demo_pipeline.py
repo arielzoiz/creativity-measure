@@ -2,7 +2,7 @@
 End-to-end pipeline test for the IEM creativity-tilt demo.
 
 Uses a headless Agg backend and a small/coarse config for speed.
-Covers: LocalIEMDistance, GlobalIEMDistance, EuclideanDistance,
+Covers: LocalIEMDistance, GlobalIEMDistance, LpDistance,
 tilted_log_density, grid_normalize, plot_field.
 """
 
@@ -17,7 +17,7 @@ from matplotlib.axes import Axes
 
 from creativity_measure import (
     Density,
-    EuclideanDistance,
+    LpDistance,
     LocalIEMDistance,
     GlobalIEMDistance,
     expected_distance,
@@ -144,7 +144,7 @@ def test_global_iem_pipeline(grid, x_refs):
 def test_euclidean_pipeline(grid, x_refs):
     grid_points, XX, YY, cell_area = grid
 
-    D = EuclideanDistance()
+    D = LpDistance(2.0)
     log_q_un = tilted_log_density(grid_points, _p, D, x_refs, lam=LAM)
 
     assert log_q_un.shape == (GRID_N * GRID_N,)

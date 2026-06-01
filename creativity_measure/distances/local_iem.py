@@ -6,6 +6,7 @@ from torch import Tensor
 from torch.func import jacfwd, jacrev, vmap
 
 from creativity_measure.density import Density
+from creativity_measure.distances.base import Distance
 
 
 def _compute_G_vmap(
@@ -125,7 +126,7 @@ def compute_G(
                                   num_noises=num_noises, chunk_size=chunk_size, seed=seed)
 
 
-class LocalIEMDistance:
+class LocalIEMDistance(Distance):
     """
     Local IEM distance:  D_local(x, x') = sqrt( (x-x')^T G(x) (x-x') ).
 

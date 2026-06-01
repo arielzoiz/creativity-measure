@@ -1,4 +1,5 @@
-from creativity_measure.distances.base import Distance, EuclideanDistance
+from creativity_measure.distances.base import Distance
+from creativity_measure.distances.lp import LpDistance
 from creativity_measure.distances.local_iem import LocalIEMDistance
 from creativity_measure.distances.global_iem import GlobalIEMDistance
 from creativity_measure.distances.global_marginal_iem import GlobalMarginalIEMDistance

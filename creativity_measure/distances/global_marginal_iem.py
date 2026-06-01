@@ -11,6 +11,7 @@ from torch import Tensor
 
 from creativity_measure._types import ScoreFn
 from creativity_measure.density import Density
+from creativity_measure.distances.base import Distance
 from creativity_measure.distances.utils import log_p_Y_given_X
 
 
@@ -68,7 +69,7 @@ def iem_sq_increments_one_to_many(
     return quad_var_increments
 
 
-class GlobalMarginalIEMDistance:
+class GlobalMarginalIEMDistance(Distance):
     """
     Global IEM distance D_IEM(x, x') via conditional score differences (slower; see
     GlobalIEMDistance for the faster direct marginal-score formulation).
