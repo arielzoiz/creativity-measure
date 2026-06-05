@@ -55,11 +55,20 @@ def score_diff_y(
     y: Float[Tensor, "B d"],
     x: Float[Tensor, "B d"],
     gamma: Float[Tensor, ""],
-    density: Density,
+    density: Density | None,
+    score_fn: ScoreFn | None = None,
 ) -> Float[Tensor, "B d"]:
-    """s(y, x, g) = ∇_y log p(y|x,g) - ∇_y log p_yg(y)   (= denoising error x - E[X|y], Tweedie)."""
-    if density.log_p_Y is None:
-        raise RuntimeError("Density must provide log_p_Y; score_fn support is not yet implemented")
+    """s(y, x, g) = ∇_y log p(y|x,g) - ∇_y log p_yg(y)   (= denoising error x - E[X|y], Tweedie).
+
+    The conditional term ∇_y log p(y|x,g) = x - y/g is analytic. The marginal term is supplied
+    by score_fn (a pre-learned model) when given, else obtained by autograd through density.log_p_Y.
+    """
+    if score_fn is not None:
+        g1 = x - y / gamma          # ∇_y log p(y|x,g), closed form
+        g2 = score_fn(y, gamma)     # ∇_y log p_yg(y), learned marginal score
+        return g1 - g2
+    if density is None or density.log_p_Y is None:
+        raise RuntimeError("Provide either score_fn or a Density exposing log_p_Y")
     y = y.detach().clone().requires_grad_(True) # isolate y so we can take d/dy at this point
     # .sum() lets one grad call return per-row gradients (rows are independent)
     g1 = torch.autograd.grad(log_p_Y_given_X(y, x, gamma).sum(), y)[0]
@@ -72,12 +81,14 @@ def iem_sq_increments_one_to_many(
     X: Float[Tensor, "G d"],
     W: Float[Tensor, "N_gamma N_eps 1 d"],
     gammas: Float[Tensor, "N_gamma"],
-    density: Density,
+    density: Density | None,
+    score_fn: ScoreFn | None = None,
 ) -> tuple[Float[Tensor, "N_gamma_minus_1 N_eps G"], Float[Tensor, "N_gamma_minus_1 N_eps G"]]:
     """
     Per-gamma increments of the log-ratio process Z, for one reference vs the whole
     batch X, sharing one Brownian path bank W.
     x_ref: (1, d), X: (G, d), W: (N_gamma, N_eps, 1, d)
+    score_fn: optional pre-learned marginal score; falls back to autograd through density.
 
     Z evolves (Itô, gamma as time): dZ = 0.5(||s1||^2 - ||s2||^2) dg + <s1 - s2, dW>,
     where s_i = x_i - E[X | y_i] is the per-point denoising error (= conditional score diff).
@@ -105,8 +116,8 @@ def iem_sq_increments_one_to_many(
         gamma = gammas[i]
         y1 = y1_path[i].reshape(num_eps, d)
         y2 = y2_path[i].reshape(num_eps * G, d)
-        s1 = score_diff_y(y1, x_ref_b, gamma, density).view(num_eps, 1, d)
-        s2 = score_diff_y(y2, X_b, gamma, density).view(num_eps, G, d)
+        s1 = score_diff_y(y1, x_ref_b, gamma, density, score_fn).view(num_eps, 1, d)
+        s2 = score_diff_y(y2, X_b, gamma, density, score_fn).view(num_eps, G, d)
         marginal_score_diff = s1 - s2       # (N_eps, G, d); = marginal score diff (Def. 1)
         quad_var_increment = marginal_score_diff.pow(2).sum(-1) * dgamma[i]  # ||diff||^2 dg  (N_eps, G)
         quad_var_increment_list.append(quad_var_increment)
@@ -129,18 +140,19 @@ class GlobalConditionalIEMDistance(Distance):
     GlobalIEMDistance for the faster direct marginal-score formulation).
 
     Args:
-        density:  Density (must expose log_p_Y)
+        density:  Density exposing log_p_Y (optional if score_fn is given)
         gammas:   integration grid, e.g. logspace(-10, 10, 200, base=2)
         num_eps:  Brownian path samples (variance reduction)
         seed:     RNG seed for the Brownian path bank
         f_type:   choice of f for the general-f IEM (default IDENTITY)
-        score_fn: Reserved for future use; when supplied, will replace autograd
-                  through `density.log_p_Y` with a learned score. Not yet consumed.
+        score_fn: optional pre-learned marginal score ∇log p_Y(y, gamma); when supplied it
+                  replaces autograd through density.log_p_Y (the conditional term x - y/g
+                  stays analytic).
     """
 
     def __init__(
         self,
-        density: Density,
+        density: Density | None,
         gammas: Float[Tensor, "N_gamma"],
         num_eps: int = 50,
         seed: int = 123,
@@ -148,15 +160,14 @@ class GlobalConditionalIEMDistance(Distance):
         f_type: IEMFType = IEMFType.IDENTITY,
         score_fn: ScoreFn | None = None,
     ):
+        if density is None and score_fn is None:
+            raise ValueError("Provide either density (with log_p_Y) or score_fn")
         self.density = density
         self.gammas = gammas
         self.num_eps = num_eps
         self.seed = seed
         self.verbose = verbose
         self.f_type = f_type
-        # TODO: when score_fn is provided, pass it through pairwise ->
-        #       iem_sq_increments_one_to_many -> score_diff_y and use it
-        #       instead of autograd, to support pre-learned score models.
         self.score_fn = score_fn
 
     def pairwise(
@@ -177,7 +188,7 @@ class GlobalConditionalIEMDistance(Distance):
         cols = []
         for ref in range(num_refs):
             quad_var_increments, z_increments = iem_sq_increments_one_to_many(
-                x_refs[ref:ref+1], X, W, gammas, self.density)
+                x_refs[ref:ref+1], X, W, gammas, self.density, self.score_fn)
             # generalized-f integrand: f'(alpha * Z_g)^2 ||s1 - s2||^2 dg
             integrand = f_prime(alpha * z_increments).pow(2) * quad_var_increments  # (N_gamma-1, N_eps, B)
             iem_squared = integrand.sum(0)      # ∫…dg; integrand summed over gamma; (N_eps, B)
