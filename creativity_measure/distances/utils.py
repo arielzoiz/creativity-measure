@@ -14,3 +14,23 @@ def log_p_Y_given_X(
     d = x.shape[-1]
     cov = float(gamma) * torch.eye(d, device=x.device, dtype=x.dtype)
     return MultivariateNormal(float(gamma) * x, cov).log_prob(y)
+
+
+def simulate_brownian(
+    gammas: Float[Tensor, "N_gamma"],
+    num_eps: int,
+    d: int,
+    seed: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> Float[Tensor, "N_gamma N_eps 1 d"]:
+    """Simulate num_eps Wiener paths W on the gamma grid (W[0]=0; Var(W_g)=g - g0)."""
+    num_gamma = gammas.shape[0]
+    dgamma = gammas[1:] - gammas[:-1]
+    generator = torch.Generator(device=device).manual_seed(seed)
+    # Brownian increments: dW ~ N(0, dgamma * I), so scale standard normals by sqrt(dgamma)
+    dW = torch.randn(num_gamma - 1, num_eps, 1, d,
+                     device=device, dtype=dtype, generator=generator) * dgamma.sqrt().view(-1, 1, 1, 1)
+    W = torch.zeros(num_gamma, num_eps, 1, d, device=device, dtype=dtype)
+    W[1:] = torch.cumsum(dW, dim=0)     # W[0]=0; cumulative sum of increments
+    return W

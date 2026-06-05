@@ -12,6 +12,7 @@ from torch import Tensor
 from creativity_measure._types import ScoreFn
 from creativity_measure.density import Density
 from creativity_measure.distances.base import Distance
+from creativity_measure.distances.utils import simulate_brownian
 
 
 def marginal_score(
@@ -97,24 +98,6 @@ class GlobalIEMDistance(Distance):
         #       instead of autograd, to support pre-learned score models.
         self.score_fn = score_fn
 
-    def _brownian(
-        self,
-        d: int,
-        device: torch.device,
-        dtype: torch.dtype,
-        gammas: Float[Tensor, "N_gamma"],
-    ) -> Float[Tensor, "N_gamma N_eps 1 d"]:
-        """Simulate num_eps Wiener paths W on the gamma grid."""
-        num_gamma = gammas.shape[0]
-        dgamma = gammas[1:] - gammas[:-1]
-        generator = torch.Generator(device=device).manual_seed(self.seed)
-        # Brownian increments: dW ~ N(0, dgamma * I), so scale standard normals by sqrt(dgamma)
-        dW = torch.randn(num_gamma - 1, self.num_eps, 1, d,
-                         device=device, dtype=dtype, generator=generator) * dgamma.sqrt().view(-1, 1, 1, 1)
-        W = torch.zeros(num_gamma, self.num_eps, 1, d, device=device, dtype=dtype)
-        W[1:] = torch.cumsum(dW, dim=0)     # W[0]=0; cumulative sum of increments
-        return W
-
     def pairwise(
         self,
         X: Float[Tensor, "B d"],
@@ -124,7 +107,7 @@ class GlobalIEMDistance(Distance):
         device, dtype = X.device, X.dtype
         d = X.shape[1]
         gammas = self.gammas.to(device=device, dtype=dtype)
-        W = self._brownian(d, device, dtype, gammas)   # built once, reused across all references
+        W = simulate_brownian(gammas, self.num_eps, d, self.seed, device, dtype)   # built once, reused across all references
         num_refs = x_refs.shape[0]
         cols = []
         for ref in range(num_refs):

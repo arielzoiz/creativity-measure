@@ -103,10 +103,11 @@ def test_different_seeds_differ():
 
 def test_pairwise_matches_manual_increments():
     from creativity_measure.distances.global_iem import iem_sq_increments_one_to_many
+    from creativity_measure.distances.utils import simulate_brownian
     dist = GlobalIEMDistance(p, gammas, num_eps=8, seed=123)
     device, dt = X.device, X.dtype
     g = gammas.to(device=device, dtype=dt)
-    W = dist._brownian(2, device, dt, g)
+    W = simulate_brownian(g, dist.num_eps, 2, dist.seed, device, dt)
     increments = iem_sq_increments_one_to_many(x_refs[0:1], X, W, g, p)
     expected = increments.sum(0).mean(0).clamp_min(0).sqrt()   # (B,)
     actual = dist.pairwise(X, x_refs[0:1]).squeeze(1)          # (B,)
