@@ -6,3 +6,4 @@ from creativity_measure.distances.global_conditional_iem import (
     GlobalConditionalIEMDistance,
     IEMFType,
 )
+from creativity_measure.distances.edm_adapter import edm_score_fn
