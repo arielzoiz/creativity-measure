@@ -32,7 +32,7 @@ from torch import Tensor
 from creativity_measure._types import ScoreFn
 from creativity_measure.density import Density
 from creativity_measure.distances.base import Distance
-from creativity_measure.distances.utils import log_p_Y_given_X, simulate_brownian
+from creativity_measure.distances.utils import simulate_brownian
 
 
 @dataclass(frozen=True)
@@ -62,20 +62,19 @@ def score_diff_y(
 ) -> Float[Tensor, "B d"]:
     """s(y, x, g) = ∇_y log p(y|x,g) - ∇_y log p_yg(y)   (= denoising error x - E[X|y], Tweedie).
 
-    The conditional term ∇_y log p(y|x,g) = x - y/g is analytic. The marginal term is supplied
-    by score_fn (a pre-learned model) when given, else obtained by autograd through density.log_p_Y.
+    The conditional term ∇_y log p(y|x,g) = x - y/g is analytics..
+    The marginal term ∇_y log p_yg(y) is supplied by score_fn (a pre-learned model) when given,
+    else obtained by autograd through density.log_p_Y.
     """
+    g1 = x - y / gamma                                  # ∇_y log p(y|x,g), closed form
     if score_fn is not None:
-        g1 = x - y / gamma          # ∇_y log p(y|x,g), closed form
-        g2 = score_fn(y, gamma)     # ∇_y log p_yg(y), learned marginal score
-        return g1 - g2
+        return g1 - score_fn(y, gamma)                  # learned marginal score
     if density is None or density.log_p_Y is None:
         raise RuntimeError("Provide either score_fn or a Density exposing log_p_Y")
-    y = y.detach().clone().requires_grad_(True) # isolate y so we can take d/dy at this point
+    y_g = y.detach().clone().requires_grad_(True)       # isolate y so we can take d/dy at this point
     # .sum() lets one grad call return per-row gradients (rows are independent)
-    g1 = torch.autograd.grad(log_p_Y_given_X(y, x, gamma).sum(), y)[0]
-    g2 = torch.autograd.grad(density.log_p_Y(y, gamma).sum(), y)[0]
-    return (g1 - g2).detach()
+    g2 = torch.autograd.grad(density.log_p_Y(y_g, gamma).sum(), y_g)[0].detach()
+    return g1 - g2
 
 
 def iem_sq_increments_one_to_many(
