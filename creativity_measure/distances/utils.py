@@ -24,13 +24,19 @@ def simulate_brownian(
     device: torch.device,
     dtype: torch.dtype,
 ) -> Float[Tensor, "N_gamma N_eps 1 d"]:
-    """Simulate num_eps Wiener paths W on the gamma grid (W[0]=0; Var(W_g)=g - g0)."""
+    """Simulate num_eps Wiener paths W on the gamma grid:
+    W[0] ~ N(0, g0 I) and increments dW ~ N(0, dgamma I), so Var(W_g) = g at every grid point.
+    (A standard Wiener process at the first grid point g0 > 0 is not zero.)"""
     num_gamma = gammas.shape[0]
     dgamma = gammas[1:] - gammas[:-1]
     generator = torch.Generator(device=device).manual_seed(seed)
     # Brownian increments: dW ~ N(0, dgamma * I), so scale standard normals by sqrt(dgamma)
     dW = torch.randn(num_gamma - 1, num_eps, 1, d,
                      device=device, dtype=dtype, generator=generator) * dgamma.sqrt().view(-1, 1, 1, 1)
+    # Initial value W[0] ~ N(0, g0 I); offset the whole path by it so Var(W_g) = g exactly.
+    W0 = torch.randn(1, num_eps, 1, d,
+                     device=device, dtype=dtype, generator=generator) * gammas[0].sqrt()
     W = torch.zeros(num_gamma, num_eps, 1, d, device=device, dtype=dtype)
-    W[1:] = torch.cumsum(dW, dim=0)     # W[0]=0; cumulative sum of increments
+    W[0] = W0
+    W[1:] = W0 + torch.cumsum(dW, dim=0)     # cumulative sum of increments, shifted by W0
     return W
