@@ -25,7 +25,7 @@ def edm_score_fn(denoiser: Denoiser, img_shape: tuple[int, ...] | None = None) -
     """Wrap an EDM-style denoiser D(y_sigma, sigma) = E[X | y_sigma] into a marginal-score ScoreFn.
 
     The returned score_fn(y, gamma) = grad_y log p_Y(y, gamma) in this repo's gamma-convention,
-    suitable as the score_fn= argument of GlobalIEMDistance / GlobalConditionalIEMDistance.
+    suitable as the score_fn= argument of GlobalIEMDistance / GeneralizedGlobalIEMDistance.
 
     Args:
         denoiser:  callable (y_sigma, sigma) -> x_pred; works on flat (B, d) inputs, or on

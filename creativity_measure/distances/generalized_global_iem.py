@@ -1,5 +1,7 @@
 #
-# Generalized / conditional global IEM pairwise distance (Ohayon et al., ICLR 2026).
+# Generalized global IEM pairwise distance (Ohayon et al., ICLR 2026), via the conditional-score
+# formulation (uses the per-point conditional score difference; see global_iem.py for the direct
+# marginal-score f = identity path).
 # Generalized-f IEM (Def. 2):
 #   D_IEM_f^2(x1,x2) = ∫_0^∞ E_W[ f'(alpha * Z_g)^2 || ∇log p_Yg(g x1 + W) - ∇log p_Yg(g x2 + W) ||^2 ] dg
 #   Z_g(x1,x2) = log( p_Yg(g x1 + W) / p_Yg(g x2 + W) )      (Def. 2, Eq. 9; log-likelihood-ratio process)
@@ -134,10 +136,10 @@ def iem_sq_increments_one_to_many(
     return quad_var_increments, z_increments
 
 
-class GlobalConditionalIEMDistance(Distance):
+class GeneralizedGlobalIEMDistance(Distance):
     """
-    Global IEM distance D_IEM(x, x') via conditional score differences (slower; see
-    GlobalIEMDistance for the faster direct marginal-score formulation).
+    Generalized global IEM distance D_IEM_f(x, x') (Def. 2, general f) via conditional score
+    differences (slower; see GlobalIEMDistance for the faster direct marginal-score f = identity).
 
     Args:
         density:  Density exposing log_p_Y (optional if score_fn is given)

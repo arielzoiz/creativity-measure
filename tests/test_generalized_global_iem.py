@@ -1,10 +1,10 @@
-"""Tests for GlobalConditionalIEMDistance score_fn wiring."""
+"""Tests for GeneralizedGlobalIEMDistance score_fn wiring."""
 import torch
 import pytest
 
 from creativity_measure.density import Density
-from creativity_measure.distances.global_conditional_iem import (
-    GlobalConditionalIEMDistance,
+from creativity_measure.distances.generalized_global_iem import (
+    GeneralizedGlobalIEMDistance,
     IEMFType,
 )
 
@@ -40,12 +40,12 @@ def test_score_fn_matches_autograd(f_type):
     # Independent of the autograd path, so this validates both the analytic conditional term
     # (x - y/g) and the autograd marginal score against ground truth.
     score_fn = lambda y, g: -y / (g ** 2 + g)
-    d_auto = GlobalConditionalIEMDistance(p, gammas, num_eps=8, seed=123, f_type=f_type)
-    d_inj = GlobalConditionalIEMDistance(None, gammas, num_eps=8, seed=123, f_type=f_type,
+    d_auto = GeneralizedGlobalIEMDistance(p, gammas, num_eps=8, seed=123, f_type=f_type)
+    d_inj = GeneralizedGlobalIEMDistance(None, gammas, num_eps=8, seed=123, f_type=f_type,
                                          score_fn=score_fn)
     assert torch.allclose(d_auto.pairwise(X, x_refs), d_inj.pairwise(X, x_refs))
 
 
 def test_requires_density_or_score_fn():
     with pytest.raises(ValueError):
-        GlobalConditionalIEMDistance(None, gammas, num_eps=8, seed=123)
+        GeneralizedGlobalIEMDistance(None, gammas, num_eps=8, seed=123)

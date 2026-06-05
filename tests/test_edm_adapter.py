@@ -3,8 +3,8 @@ import torch
 
 from creativity_measure.density import Density
 from creativity_measure.distances.edm_adapter import edm_score_fn
-from creativity_measure.distances.global_conditional_iem import (
-    GlobalConditionalIEMDistance,
+from creativity_measure.distances.generalized_global_iem import (
+    GeneralizedGlobalIEMDistance,
     IEMFType,
 )
 
@@ -47,7 +47,7 @@ def test_adapter_end_to_end_matches_density():
     X = torch.tensor([[1.0, 0.0], [0.0, -1.0], [0.5, 0.5]], dtype=dtype)
     x_refs = torch.tensor([[0.0, 0.0], [1.0, 1.0]], dtype=dtype)
     score_fn = edm_score_fn(mock_denoiser)
-    d_auto = GlobalConditionalIEMDistance(p, gammas, num_eps=8, seed=123, f_type=IEMFType.SQUARED)
-    d_edm = GlobalConditionalIEMDistance(None, gammas, num_eps=8, seed=123, f_type=IEMFType.SQUARED,
+    d_auto = GeneralizedGlobalIEMDistance(p, gammas, num_eps=8, seed=123, f_type=IEMFType.SQUARED)
+    d_edm = GeneralizedGlobalIEMDistance(None, gammas, num_eps=8, seed=123, f_type=IEMFType.SQUARED,
                                          score_fn=score_fn)
     assert torch.allclose(d_auto.pairwise(X, x_refs), d_edm.pairwise(X, x_refs))
