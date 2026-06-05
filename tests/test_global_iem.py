@@ -112,3 +112,22 @@ def test_pairwise_matches_manual_increments():
     expected = increments.sum(0).mean(0).clamp_min(0).sqrt()   # (B,)
     actual = dist.pairwise(X, x_refs[0:1]).squeeze(1)          # (B,)
     assert torch.allclose(actual, expected)
+
+
+# ---------------------------------------------------------------------------
+# Test 5: injected score_fn reproduces the autograd path
+# ---------------------------------------------------------------------------
+
+def test_score_fn_matches_autograd():
+    from creativity_measure.distances.global_iem import marginal_score
+    # a score_fn that simply wraps the autograd marginal score must reproduce the density path
+    score_fn = lambda y, g: marginal_score(y, g, p)
+    d_auto = GlobalIEMDistance(p, gammas, num_eps=8, seed=123)
+    d_inj  = GlobalIEMDistance(None, gammas, num_eps=8, seed=123, score_fn=score_fn)
+    assert torch.allclose(d_auto.pairwise(X, x_refs), d_inj.pairwise(X, x_refs))
+
+
+def test_requires_density_or_score_fn():
+    import pytest
+    with pytest.raises(ValueError):
+        GlobalIEMDistance(None, gammas, num_eps=8, seed=123)
