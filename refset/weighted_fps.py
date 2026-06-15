@@ -23,6 +23,7 @@ from typing import cast
 import torch
 from jaxtyping import Float
 from torch import Tensor
+from scipy.stats import weightedtau
 
 from creativity_measure.distances.base import Distance
 from .fps import FPSRefs
@@ -110,23 +111,18 @@ class WeightedFPSRefs(FPSRefs):
         # Used by expected_distance() (n == chosen R). Reduce with the frozen deployment weights ("A").
         return self._weighted_mean(pw, self._voronoi_weights("A", n))
 
-    def _tau_at_R(self, probes: Float[Tensor, "K d"], R: int, draw: int) -> float:
-        # Override the sweep's comparison: R-side weights from set A, 2R-side weights from set B (INDEPENDENT)
-        # -> removes the shared-weight-noise inflation (bias B). Reference nesting (bias A) is unremovable
-        # for deterministic FPS, so chosen R stays optimistic (see module docstring).
-        if self.distance is None:
-            raise ValueError("needs a `distance`; pass distance= at construction.")
+    def _tau_from_block(self, block: Float[Tensor, "K twoMaxR"], R: int, draw: int) -> float:
+        # Slice the precomputed (probes x 2*max_r) block for refs; weights from independent sets A (R-side)
+        # and B (2R-side) -> removes shared-weight-noise inflation (bias B). Reference nesting (A) remains.
+        assert weightedtau is not None
         R_max = self._max_swept_R()
         self._ensure_est("A", R_max)
         self._ensure_est("B", R_max)
-        refs2 = self._refs_for_size(2 * R, draw=draw)                 # nested refs (first R = R-set)
-        pw = self.distance.pairwise(probes, refs2)                    # (K, 2R)
-        wR = self._voronoi_weights("A", R)                           # R-side weights  <- set A
-        w2R = self._voronoi_weights("B", 2 * R)                      # 2R-side weights <- set B (independent)
-        from scipy.stats import weightedtau
-        fR = self._weighted_mean(pw[:, :R], wR)
-        f2R = self._weighted_mean(pw, w2R)
-        return cast(float, weightedtau(fR.numpy(), f2R.numpy())[0])   # scipy stub types [0] as object
+        wR = self._voronoi_weights("A", R)                          # R-side weights  <- set A
+        w2R = self._voronoi_weights("B", 2 * R)                     # 2R-side weights <- set B (independent)
+        fR = self._weighted_mean(block[:, :R], wR)
+        f2R = self._weighted_mean(block[:, :2 * R], w2R)
+        return cast(float, weightedtau(fR.numpy(), f2R.numpy())[0])
 
     def _max_swept_R(self) -> int:
         # Largest R the auto-R sweep will reach (so estimation sets / D_est are sized once for the whole sweep).

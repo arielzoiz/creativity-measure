@@ -54,7 +54,7 @@ class RefSelector(ABC):
         seed: int | None = None,
         auto_r_grid: tuple[int, ...] = (1, 2, 4, 8, 16, 32, 64, 128),
         tau_target: float = 0.97,
-        probe_size: int = 300,
+        probe_size: int = 128,
         auto_r_draws: int = 20,
         fallback: str = "raise",
     ):
@@ -164,40 +164,52 @@ class RefSelector(ABC):
         probes = self.p.sample(self.probe_size, seed=probe_seed)
         n_draws = self._auto_r_effective_draws()
         max_avail = self._max_available_size()
-        max_r = max((r for r in self.auto_r_grid if 2 * r <= max_avail), default=0)
+        grid = [r for r in self.auto_r_grid if 2 * r <= max_avail]
+        if not grid:
+            raise RuntimeError("no R in auto_r_grid satisfies 2R <= available pool; lower the grid / enlarge pool.")
+        max_r = grid[-1]
+
+        # Amortize: compute one (probes x 2*max_r) distance block PER DRAW, then every R is a column-slice.
+        # This is the key cost fix -- the sweep does n_draws * (probes x 2*max_r) IEM evals TOTAL, not
+        # n_draws * probes * Σ(2R) (which recomputed the matrix at every R).
+        blocks = [self._tau_block(probes, max_r, d) for d in range(n_draws)]   # list of (K, 2*max_r)
+
         self._tau_history = []
-        for R in self.auto_r_grid:
-            if 2 * R > max_avail:
-                break
-            taus = [self._tau_at_R(probes, R, d) for d in range(n_draws)]
+        for R in grid:
+            taus = [self._tau_from_block(blocks[d], R, d) for d in range(n_draws)]
             tau = float(torch.tensor(taus).mean())
             self._tau_history.append((R, tau))
             if tau >= self.tau_target:
                 return R
-        # No R met the target. Either error (notebook) or degrade to the best observed R (sampler loop).
         if self.fallback == "best":
             valid = [(R, t) for R, t in self._tau_history if t == t]   # drop NaN (t != t)
             if valid:
                 best_tau = max(t for _, t in valid)
-                return min(R for R, t in valid if t == best_tau)       # smallest R at the τ ceiling
+                return min(R for R, t in valid if t == best_tau)
         raise RuntimeError(
             f"weighted-τ never reached tau_target={self.tau_target} within R<={max_r} "
             f"(observed ceiling τ≈{max((t for _, t in self._tau_history), default=float('nan')):.3f}); "
             f"enlarge the pool / auto_r_grid, lower tau_target, or pass fallback='best'.")
-    
-    def _tau_at_R(self, probes: Float[Tensor, "K d"], R: int, draw: int) -> float:
+
+    def _tau_block(self, probes: Float[Tensor, "K d"], max_r: int, draw: int) -> Float[Tensor, "K twoMaxR"]:
         """
-        One weighted-τ(f_R, f_2R) for the auto-R sweep. Default: nested test on a single reference set
-        (first R vs first 2R of the same draw). NOTE: the 2R set is a SUPERSET of the R set, so f_R and
-        f_2R share R terms and τ is biased optimistic -> chosen R may be smaller than an independent test
-        would give. Nesting is intrinsic for deterministic FPS; RandomRefs varies `draw` to average real
-        reference variance. Weighted selectors override to also de-correlate weight noise across R/2R.
+        Compute the (probes x 2*max_r) distance block for one draw, ONCE. The auto-R sweep slices its
+        columns for every R, so pairwise() runs n_draws times total -- not once per (R, draw).
+        References are the first 2*max_r of this draw's reference set (a prefix for deterministic selectors,
+        a fresh i.i.d. draw for stochastic ones), so columns [:2R] are exactly the size-2R reference set.
         """
-        if self.distance is None:
-            raise ValueError("needs a `distance`; pass distance= at construction.")
-        assert weightedtau is not None    # guaranteed by _auto_select_R's guard (narrows the soft import)
-        refs2 = self._refs_for_size(2 * R, draw=draw)              # nested: first R are the R-set
-        pw = self.distance.pairwise(probes, refs2)                 # (K, 2R)
-        fR = self._f_from_pairwise(pw[:, :R], R, draw)             # f from first R refs
-        f2R = self._f_from_pairwise(pw, 2 * R, draw)              # f from all 2R refs
-        return cast(float, weightedtau(fR.numpy(), f2R.numpy())[0])   # scipy stub types [0] as object
+        assert self.distance is not None
+        refs = self._refs_for_size(2 * max_r, draw=draw)
+        return self.distance.pairwise(probes, refs)               # (K, 2*max_r)
+
+    def _tau_from_block(self, block: Float[Tensor, "K twoMaxR"], R: int, draw: int) -> float:
+        """
+        One weighted-τ(f_R, f_2R) by SLICING the precomputed block -- no new IEM evals.
+        NOTE (nesting bias): the 2R column-set is a SUPERSET of the R set, so f_R and f_2R share R terms
+        and τ is biased optimistic -> chosen R may be smaller than an independent test would give. Nesting
+        is intrinsic for deterministic FPS. Weighted selectors override to de-correlate weight noise.
+        """
+        assert weightedtau is not None
+        fR = self._f_from_pairwise(block[:, :R], R, draw)
+        f2R = self._f_from_pairwise(block[:, :2 * R], 2 * R, draw)
+        return cast(float, weightedtau(fR.numpy(), f2R.numpy())[0])
