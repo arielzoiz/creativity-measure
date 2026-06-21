@@ -25,6 +25,7 @@ from jaxtyping import Float
 from torch import Tensor
 from scipy.stats import weightedtau
 
+from creativity_measure._types import SampleableDensity
 from creativity_measure.distances.base import Distance
 from .fps import FPSRefs
 
@@ -41,7 +42,7 @@ class WeightedFPSRefs(FPSRefs):
 
     def __init__(
         self,
-        p,
+        p: SampleableDensity,
         distance: Distance,
         pool_size: int = 1000,
         start: int | None = 0,

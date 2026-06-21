@@ -14,6 +14,7 @@ import torch
 from jaxtyping import Float
 from torch import Tensor
 
+from creativity_measure._types import SampleableDensity
 from creativity_measure.distances.base import Distance
 from .base import RefSelector
 
@@ -21,7 +22,7 @@ from .base import RefSelector
 class FPSRefs(RefSelector):
     """Greedy max-min FPS references in the IEM metric (biased: mode-balanced; see module docstring)."""
 
-    def __init__(self, p, distance: Distance, pool_size: int = 1000, start: int | None = 0, **kw):
+    def __init__(self, p: SampleableDensity, distance: Distance, pool_size: int = 1000, start: int | None = 0, **kw):
         super().__init__(p, distance=distance, **kw)
         self.pool_size = pool_size
         self.start = start

@@ -14,6 +14,7 @@ import torch
 from jaxtyping import Float
 from torch import Tensor
 
+from creativity_measure._types import SampleableDensity
 from creativity_measure.distances.base import Distance
 
 try:
@@ -49,7 +50,7 @@ class RefSelector(ABC):
 
     def __init__(
         self,
-        p,
+        p: SampleableDensity,
         distance: Distance | None = None,
         seed: int | None = None,
         auto_r_grid: tuple[int, ...] = (1, 2, 4, 8, 16, 32, 64, 128),
