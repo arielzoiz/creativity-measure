@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
 from creativity_measure.device import default_device
 
@@ -19,8 +21,14 @@ def make_grid(xlim, ylim, grid_n=50, device=None, dtype=torch.float64):
 
 
 def plot_field(vals, XX, YY, ax=None, title="", cmap="viridis", levels=20,
-               marked=None, missing=None):
-    """Filled contour of a scalar field on a meshgrid."""
+               marked=None, missing=None, refs=None):
+    """Filled contour of a scalar field on a meshgrid.
+
+    marked  -- points drawn as orange x   (e.g. observed component means)
+    missing -- points drawn as red stars  (e.g. removed/held-out modes)
+    refs    -- points drawn as black dots  (e.g. chosen reference points);
+               adds a legend entry labelled with the number of refs.
+    """
     if ax is None:
         _, ax = plt.subplots()
     Z = vals.reshape(XX.shape)
@@ -38,7 +46,28 @@ def plot_field(vals, XX, YY, ax=None, title="", cmap="viridis", levels=20,
         mm = missing.cpu().numpy() if isinstance(missing, torch.Tensor) else missing
         ax.scatter(mm[:, 0], mm[:, 1], marker='*', c='red', s=120,
                    edgecolors='white', linewidths=0.5, zorder=5)
+    if refs is not None:
+        r = refs.cpu().numpy() if isinstance(refs, torch.Tensor) else refs
+        ax.scatter(r[:, 0], r[:, 1], s=12, c='k', edgecolors='white',
+                   linewidths=0.3, zorder=6, label=f"refs (R={r.shape[0]})")
+        ax.legend(loc='upper right', fontsize=8, framealpha=0.75)
     return ax
+
+
+def panel_grid(n: int, ncols: int = 2, panel_w: float = 6.0,
+               panel_h: float = 4.0) -> tuple[Figure, list[Axes]]:
+    """Create a flattened grid for n panels (ncols columns, rows auto).
+
+    Returns (fig, axes) where axes is a list of exactly n visible axes; any
+    leftover cells in the final row are created but hidden. The caller is
+    responsible for suptitle / tight_layout / show.
+    """
+    nrows = (n + ncols - 1) // ncols
+    fig, axs = plt.subplots(nrows, ncols, figsize=(panel_w * ncols, panel_h * nrows))
+    flat: list[Axes] = list(np.asarray(axs).reshape(-1))
+    for ax in flat[n:]:
+        ax.axis('off')
+    return fig, flat[:n]
 
 
 def plot_samples(samples, ax=None, title="", alpha=0.3, s=5, color='steelblue'):

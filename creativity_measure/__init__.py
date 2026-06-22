@@ -7,4 +7,4 @@ from creativity_measure.distances import (
 from creativity_measure.tilt import (
     expected_distance, tilted_log_density, grid_normalize,
 )
-from creativity_measure.plotting import make_grid, plot_field, plot_samples
+from creativity_measure.plotting import make_grid, plot_field, plot_samples, panel_grid
