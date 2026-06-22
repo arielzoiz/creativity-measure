@@ -92,7 +92,7 @@ def lambda_sweep(
     normalize: bool = True,
     marked=None,
     missing=None,
-    refs=None,
+    refs: "torch.Tensor | Sequence[torch.Tensor] | None" = None,
     cmap: str = "viridis",
     levels: int = 20,
     panel_w: float = 5.0,
@@ -125,7 +125,9 @@ def lambda_sweep(
     panel_titles -- override per-panel titles in gallery mode.
     suptitle_y   -- y position for the suptitle (e.g. 1.03 to lift it clear of
                     the top row); None uses matplotlib's default placement.
-    marked/missing/refs -- overlays forwarded to every panel (see plot_field).
+    marked/missing -- overlays forwarded to every panel (see plot_field).
+    refs         -- a single ref set (broadcast to every panel), or a list of F
+                    sets (one per field; column c gets refs[c]).
 
     Returns (fig, axes); the caller is responsible for plt.show().
     """
@@ -162,10 +164,17 @@ def lambda_sweep(
         has_l0 = True
     L = len(lam_list)
 
+    if isinstance(refs, (list, tuple)) and len(refs) != F:
+        raise ValueError(f"lambda_sweep: refs has {len(refs)} sets "
+                         f"but there are {F} fields.")
+
     def cell_field(l_idx: int, c_idx: int) -> torch.Tensor:
         coef = lam_list[l_idx] * l0[c_idx]
         vals = log_p_grid + coef * field_list[c_idx]
         return grid_normalize(vals, cell_area)[0] if normalize else vals
+
+    def refs_for(c_idx: int):
+        return refs[c_idx] if isinstance(refs, (list, tuple)) else refs
 
     if L > 1 and F > 1:
         fig, axs = plt.subplots(L, F, squeeze=False,
@@ -178,7 +187,7 @@ def lambda_sweep(
                          if field_labels is not None and l_idx == 0 else "")
                 plot_field(cell_field(l_idx, c_idx), XX, YY, ax=ax, title=title,
                            cmap=cmap, levels=levels, marked=marked,
-                           missing=missing, refs=refs)
+                           missing=missing, refs=refs_for(c_idx))
                 if c_idx == 0:
                     if row_labels is not None:
                         ax.set_ylabel(row_labels[l_idx], fontsize=12)
@@ -199,7 +208,7 @@ def lambda_sweep(
                 title = f"{lbl}  λ={lam_list[0]:g}".strip()
             plot_field(cell_field(l_idx, c_idx), XX, YY, ax=ax, title=title,
                        cmap=cmap, levels=levels, marked=marked,
-                       missing=missing, refs=refs)
+                       missing=missing, refs=refs_for(c_idx))
 
     if suptitle is not None:
         if suptitle_y is None:
