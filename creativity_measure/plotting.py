@@ -2,9 +2,13 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
+from creativity_measure.device import default_device
 
-def make_grid(xlim, ylim, grid_n=50, device="cpu", dtype=torch.float64):
-    """Returns (grid_points (G,2), XX, YY, cell_area)."""
+
+def make_grid(xlim, ylim, grid_n=50, device=None, dtype=torch.float64):
+    """Returns (grid_points (G,2), XX, YY, cell_area). device=None => default_device()."""
+    if device is None:
+        device = default_device()
     xs = torch.linspace(xlim[0], xlim[1], grid_n, device=device, dtype=dtype)
     ys = torch.linspace(ylim[0], ylim[1], grid_n, device=device, dtype=dtype)
     XX, YY = torch.meshgrid(xs, ys, indexing='xy')

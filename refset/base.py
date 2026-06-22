@@ -213,4 +213,4 @@ class RefSelector(ABC):
         assert weightedtau is not None
         fR = self._f_from_pairwise(block[:, :R], R, draw)
         f2R = self._f_from_pairwise(block[:, :2 * R], 2 * R, draw)
-        return cast(float, weightedtau(fR.numpy(), f2R.numpy())[0])
+        return cast(float, weightedtau(fR.detach().cpu().numpy(), f2R.detach().cpu().numpy())[0])

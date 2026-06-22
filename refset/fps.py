@@ -68,7 +68,7 @@ class FPSRefs(RefSelector):
             min_dist = torch.minimum(min_dist, new_col)           # running min over chosen (no recompute)
             self._rho_hist.append(min_dist.max().item())
         self._min_dist = min_dist                                 # rebound by torch.minimum; write back
-        self._order = torch.tensor(chosen)
+        self._order = torch.tensor(chosen, device=pool.device)    # match pool's device so GPU indexing works
 
     def _refs_for_size(self, n: int, draw: int) -> Float[Tensor, "n d"]:
         # Deterministic: the FPS order is a prefix, so extend only if needed and slice. `draw` is ignored.

@@ -123,7 +123,7 @@ class WeightedFPSRefs(FPSRefs):
         w2R = self._voronoi_weights("B", 2 * R)                     # 2R-side weights <- set B (independent)
         fR = self._weighted_mean(block[:, :R], wR)
         f2R = self._weighted_mean(block[:, :2 * R], w2R)
-        return cast(float, weightedtau(fR.numpy(), f2R.numpy())[0])
+        return cast(float, weightedtau(fR.detach().cpu().numpy(), f2R.detach().cpu().numpy())[0])
 
     def _max_swept_R(self) -> int:
         # Largest R the auto-R sweep will reach (so estimation sets / D_est are sized once for the whole sweep).
