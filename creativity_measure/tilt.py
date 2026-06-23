@@ -9,9 +9,21 @@ def expected_distance(
     distance: Distance,
     X: Float[Tensor, "B d"],
     x_refs: Float[Tensor, "R d"],
+    weights: Float[Tensor, "R"] | None = None,
 ) -> Float[Tensor, "B"]:
-    """E_{x'~p}[ D(x', X) ] approximated by the mean over the supplied refs."""
-    return distance.pairwise(X, x_refs).mean(dim=1)
+    """E_{x'~p}[ D(x', X) ] approximated by the (weighted) mean over the supplied refs.
+
+    f(X) = sum_r w_r D(X, x'_r) / sum_r w_r.
+
+    weights: per-reference weights (e.g. RefSelector.weights). None => uniform, i.e.
+             the plain mean over refs. Weighted selectors (WeightedFPSRefs) must pass
+             their weights here, otherwise the Voronoi weighting is silently dropped.
+    """
+    pw = distance.pairwise(X, x_refs)                     # (B, R)
+    if weights is None:
+        return pw.mean(dim=1)
+    w = weights.to(pw)                                    # match dtype/device
+    return (pw * w).sum(dim=1) / w.sum()
 
 
 def tilted_log_density(
@@ -20,6 +32,7 @@ def tilted_log_density(
     distance: Distance,
     x_refs: Float[Tensor, "R d"],
     lam: float,
+    weights: Float[Tensor, "R"] | None = None,
 ) -> Float[Tensor, "B"]:
     """
     Unnormalized log of  q_lambda(x) ∝ p(x) * exp(lambda * E_{x'~p}[D(x', x)]).
@@ -27,8 +40,10 @@ def tilted_log_density(
     Returns log p(X) + lambda * E_{x'~p}[D(x', X)].
     (The normalizer Z_lambda is omitted; use grid_normalize for 2D, or
     ignore it for sampling where it cancels.)
+
+    weights: per-reference weights forwarded to expected_distance; None => uniform.
     """
-    score = expected_distance(distance, X, x_refs)        # (B,)
+    score = expected_distance(distance, X, x_refs, weights=weights)   # (B,)
     return density.log_p_X(X) + lam * score
 
 
