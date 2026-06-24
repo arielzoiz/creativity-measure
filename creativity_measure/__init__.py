@@ -10,4 +10,9 @@ from creativity_measure.tilt import (
 from creativity_measure.plotting import (
     make_grid, plot_field, plot_samples, panel_grid, lambda_sweep,
 )
-from creativity_measure.smc import smc_sample, SMCResult
+from creativity_measure.smc import (
+    smc_sample, SMCResult, Kernel, IndependenceKernel, PCNKernel,
+)
+from creativity_measure.generator import (
+    heun_prob_flow, density_denoiser, density_generator, edm_generator,
+)

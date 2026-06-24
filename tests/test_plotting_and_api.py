@@ -72,6 +72,13 @@ EXPECTED_NAMES = [
     "plot_samples",
     "smc_sample",
     "SMCResult",
+    "Kernel",
+    "IndependenceKernel",
+    "PCNKernel",
+    "heun_prob_flow",
+    "density_denoiser",
+    "density_generator",
+    "edm_generator",
 ]
 
 
