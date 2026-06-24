@@ -26,7 +26,7 @@ from creativity_measure.smc import (
     _systematic_resample,
     _next_dbeta,
 )
-from refset import RandomRefs, WeightedFPSRefs
+from creativity_measure.refset import RandomRefs, WeightedFPSRefs
 
 dtype = torch.float64
 XLIM = (-6.0, 6.0)

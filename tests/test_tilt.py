@@ -7,7 +7,7 @@ import pytest
 from creativity_measure.density import Density
 from creativity_measure.distances.lp import LpDistance
 from creativity_measure.tilt import expected_distance, tilted_log_density, grid_normalize
-from refset import RandomRefs, WeightedFPSRefs
+from creativity_measure.refset import RandomRefs, WeightedFPSRefs
 
 
 # ---------------------------------------------------------------------------

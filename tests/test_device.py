@@ -8,8 +8,8 @@ from torch.distributions import Categorical, MixtureSameFamily, MultivariateNorm
 from creativity_measure.density import Density
 from creativity_measure.device import default_device, set_default_device
 from creativity_measure.distances.global_iem import GlobalIEMDistance
-from refset.fps import FPSRefs
-from refset.random_refs import RandomRefs
+from creativity_measure.refset.fps import FPSRefs
+from creativity_measure.refset.random_refs import RandomRefs
 
 # ---------------------------------------------------------------------------
 # Shared fixtures: 2-mode GMM (same setup as test_global_iem)
