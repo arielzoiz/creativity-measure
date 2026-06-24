@@ -70,6 +70,8 @@ EXPECTED_NAMES = [
     "make_grid",
     "plot_field",
     "plot_samples",
+    "smc_sample",
+    "SMCResult",
 ]
 
 

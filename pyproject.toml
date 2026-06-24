@@ -18,6 +18,11 @@ dev = [
   "nbdime",
 ]
 
+[tool.pytest.ini_options]
+markers = [
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
 [tool.pyright]
 include = ["creativity_measure", "tests"]
 pythonVersion = "3.11"

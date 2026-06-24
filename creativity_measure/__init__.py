@@ -10,3 +10,4 @@ from creativity_measure.tilt import (
 from creativity_measure.plotting import (
     make_grid, plot_field, plot_samples, panel_grid, lambda_sweep,
 )
+from creativity_measure.smc import smc_sample, SMCResult
