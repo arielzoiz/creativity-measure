@@ -131,7 +131,15 @@ class _State:
 
 
 class Kernel(ABC):
-    """A rejuvenation kernel: how particles are initialized and moved (invariant to π_β)."""
+    """A rejuvenation kernel: how particles are initialized and moved (invariant to π_β).
+
+    Each kernel also carries its **calibrated default schedule** (`default_ess_target`, `default_n_mcmc`),
+    which :func:`smc_sample` uses when the caller leaves those unset — because the *good* schedule depends
+    on the kernel (independence vs local pCN). Defaults here are the standard SMC values; subclasses override.
+    """
+
+    default_ess_target: float = 0.5
+    default_n_mcmc: int = 3
 
     @abstractmethod
     def init(
@@ -186,22 +194,34 @@ class IndependenceKernel(Kernel):
 class PCNKernel(Kernel):
     """Phase-2 latent-space pCN: local, prior-preserving moves via a generator ``G(z) -> x``.
 
+    The unitless defaults below were locked by the qualitative calibration in
+    ``phase2_pcn_calibration.ipynb`` (a 2D toy with ``grid_normalize`` ground truth); because pCN is
+    dimension-robust, they transfer to high-d (pixel/latent). The calibration found ``target_acc``
+    essentially insensitive across 0.234-0.45, so we adopt the high-d-optimal ~0.234 (Roberts-Gelman-Gilks).
+    The *dominant* lever for recovery is the SMC **schedule**; this kernel therefore sets the calibrated
+    schedule defaults ``default_ess_target = 0.7`` and ``default_n_mcmc = 4`` (applied by
+    :func:`smc_sample` when the caller leaves ``ess_target`` / ``n_mcmc`` unset). Raise ``ess_target``
+    toward 0.9 for very strong tilts (recovery rose 54% -> 74% as ``ess_target`` went 0.5 -> 0.9).
+
     Args:
         generator_fn: deterministic map ``G: (N, latent_dim) -> (N, d)`` with ``G(N(0,I)) ~ p``
                       (e.g. ``generator.density_generator`` for 2D, ``generator.edm_generator`` for pixels).
         latent_dim:   flat latent dimensionality (= data dim d).
-        s0:           initial pCN step size in (0, 1).
-        target_acc:   acceptance the step size adapts toward (Robbins-Monro).
+        s0:           initial pCN step size in (0, 1); only the warm-up (the step then adapts).
+        target_acc:   acceptance the step size adapts toward (Robbins-Monro); ~0.23 is the high-d optimum.
         adapt_rate:   log-step adaptation rate.
     """
+
+    default_ess_target = 0.7        # calibrated: a finer schedule is needed for off-manifold tilts
+    default_n_mcmc = 4
 
     def __init__(
         self,
         generator_fn: Callable[[Tensor], Tensor],
         latent_dim: int,
         *,
-        s0: float = 0.3,
-        target_acc: float = 0.3,
+        s0: float = 0.4,
+        target_acc: float = 0.23,
         adapt_rate: float = 0.1,
     ):
         self.G = generator_fn
@@ -321,8 +341,8 @@ def smc_sample(
     n_particles: int,
     *,
     kernel: Kernel | None = None,
-    ess_target: float = 0.5,
-    n_mcmc: int = 3,
+    ess_target: float | None = None,
+    n_mcmc: int | None = None,
     final_resample: bool = False,
     seed: int | None = None,
 ) -> SMCResult:
@@ -331,17 +351,32 @@ def smc_sample(
     The reward ``f(x) = Σ_r w_r D(x, x'_r) / Σ_r w_r`` is the weight-aware ``tilt.expected_distance`` against
     the frozen references; this is identical for every kernel.
 
+    Choosing parameters (high-d: steer by scalar diagnostics, never by eyeballing samples):
+      * ``lam``        — set ``lambda = m * lambda_0`` with the data-derived scale
+                         ``lambda_0 = std(log p at refs) / std(f at refs)`` and a unitless multiplier ``m``
+                         (how far off the manifold you want).
+      * ``x_refs``/``weights`` — from a ``refset`` selector (auto-R picks ``R`` by a unitless τ-rule).
+      * ``kernel``     — :class:`PCNKernel` for strong / off-manifold tilts (and pixel-ready);
+                         the default :class:`IndependenceKernel` is fine when ``q ≈ p`` (mild tilt).
+      * ``n_particles``— as large as compute allows; check ``SMCResult.ess_history[-1]`` is adequate.
+      * ``ess_target`` / ``n_mcmc`` — leave ``None`` to use the kernel's *calibrated* defaults; these
+                         (and the pCN step on :class:`PCNKernel`) are unitless and transfer across
+                         dimension. Tune via the ESS- and acceptance-vs-β histories, not by eye
+                         (see ``phase2_pcn_calibration.ipynb``).
+
     Args:
         p:            base density. Required (used by the default :class:`IndependenceKernel`); may be ``None``
                       when an explicit ``kernel`` is given (e.g. :class:`PCNKernel`, which proposes via ``G``).
         distance:     reward distance ``D`` (via ``.pairwise``).
         x_refs:       frozen references, (R, d); also fixes the run's device/dtype.
         weights:      frozen per-reference weights, (R,); ``None`` => uniform.
-        lam:          tilt strength ``lambda``.
+        lam:          tilt strength ``lambda`` (see "Choosing parameters" above).
         n_particles:  number of SMC particles ``N``.
         kernel:       rejuvenation kernel; ``None`` => :class:`IndependenceKernel`(p) (Phase-1 behavior).
         ess_target:   target ESS as a fraction of ``N`` (tempering target + resampling threshold).
-        n_mcmc:       rejuvenation moves per level.
+                      ``None`` => the kernel's calibrated default (Independence 0.5; pCN 0.7). Raise toward
+                      0.9 for very strong tilts — the dominant recovery lever.
+        n_mcmc:       rejuvenation moves per level. ``None`` => kernel default (Independence 3; pCN 4).
         final_resample: if ``True``, resample once at the end so the returned particles are equal-weight.
         seed:         seeds the internal generator (and the global RNG for the independence kernel).
 
@@ -355,6 +390,12 @@ def smc_sample(
         if p is None:
             raise ValueError("smc_sample needs either `p` (default independence kernel) or an explicit `kernel=`")
         kernel = IndependenceKernel(p)
+
+    # unset schedule -> the chosen kernel's calibrated default (Independence 0.5/3; pCN 0.7/4)
+    if ess_target is None:
+        ess_target = kernel.default_ess_target
+    if n_mcmc is None:
+        n_mcmc = kernel.default_n_mcmc
 
     if seed is not None:
         torch.manual_seed(seed)                 # global RNG: IndependenceKernel proposes via Density.sample
