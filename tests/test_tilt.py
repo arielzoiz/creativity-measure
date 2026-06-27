@@ -6,7 +6,7 @@ import pytest
 
 from creativity_measure.density import Density
 from creativity_measure.distances.lp import LpDistance
-from creativity_measure.tilt import expected_distance, tilted_log_density, grid_normalize
+from creativity_measure.tilt import expected_distance, tilted_log_density, grid_normalize, Reward
 from creativity_measure.refset import RandomRefs, WeightedFPSRefs
 
 
@@ -53,7 +53,7 @@ def test_tilted_log_density_lam0_recovers_log_p():
     X = torch.tensor([[0.0, 0.0], [10.0, 0.0]], dtype=torch.float64)
     x_refs = torch.zeros(5, 2, dtype=torch.float64)
 
-    result = tilted_log_density(X, p, LpDistance(2.0), x_refs, lam=0.0)
+    result = tilted_log_density(X, p, Reward(LpDistance(2.0), x_refs), lam=0.0)
 
     assert result.shape == (2,)
     assert torch.allclose(result, torch.zeros(2, dtype=torch.float64)), (
@@ -70,7 +70,7 @@ def test_tilted_log_density_lam_positive_raises_far_point():
     X = torch.tensor([[0.0, 0.0], [10.0, 0.0]], dtype=torch.float64)
     x_refs = torch.zeros(5, 2, dtype=torch.float64)
 
-    result = tilted_log_density(X, p, LpDistance(2.0), x_refs, lam=1.0)
+    result = tilted_log_density(X, p, Reward(LpDistance(2.0), x_refs), lam=1.0)
 
     assert result.shape == (2,)
     assert result[1].item() > result[0].item(), (
@@ -186,7 +186,7 @@ def test_expected_distance_nonuniform_weights_manual():
 
 
 def test_tilted_log_density_threads_weights():
-    """tilted_log_density forwards weights to expected_distance."""
+    """tilted_log_density applies the Reward's weights (they ride inside the bundle, not a kwarg)."""
     p = flat_density()
     X = torch.tensor([[0.0, 0.0], [10.0, 0.0]], dtype=torch.float64)
     x_refs = torch.tensor(
@@ -195,7 +195,7 @@ def test_tilted_log_density_threads_weights():
     D = LpDistance(2.0)
     w = torch.tensor([0.1, 0.2, 0.3, 0.4], dtype=torch.float64)
 
-    got = tilted_log_density(X, p, D, x_refs, lam=2.0, weights=w)
+    got = tilted_log_density(X, p, Reward(D, x_refs, w), lam=2.0)
     expected = p.log_p_X(X) + 2.0 * expected_distance(D, X, x_refs, weights=w)
     assert torch.allclose(got, expected)
 

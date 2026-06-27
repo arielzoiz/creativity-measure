@@ -25,6 +25,7 @@ from creativity_measure import (
     grid_normalize,
     make_grid,
     plot_field,
+    Reward,
 )
 
 # ---------------------------------------------------------------------------
@@ -98,7 +99,7 @@ def test_local_iem_pipeline(grid, x_refs):
     grid_points, XX, YY, cell_area = grid
 
     D = LocalIEMDistance(_p, GAMMAS_LOCAL, num_noises=4)
-    log_q_un = tilted_log_density(grid_points, _p, D, x_refs, lam=LAM)
+    log_q_un = tilted_log_density(grid_points, _p, Reward(D, x_refs), lam=LAM)
 
     # shape
     assert log_q_un.shape == (GRID_N * GRID_N,), (
@@ -124,7 +125,7 @@ def test_global_iem_pipeline(grid, x_refs):
     grid_points, XX, YY, cell_area = grid
 
     D = GlobalIEMDistance(_p, GAMMAS_GLOBAL, num_eps=4)
-    log_q_un = tilted_log_density(grid_points, _p, D, x_refs, lam=LAM)
+    log_q_un = tilted_log_density(grid_points, _p, Reward(D, x_refs), lam=LAM)
 
     assert log_q_un.shape == (GRID_N * GRID_N,)
     assert log_q_un.isfinite().all(), "log_q_un has non-finite values (global IEM)"
@@ -145,7 +146,7 @@ def test_euclidean_pipeline(grid, x_refs):
     grid_points, XX, YY, cell_area = grid
 
     D = LpDistance(2.0)
-    log_q_un = tilted_log_density(grid_points, _p, D, x_refs, lam=LAM)
+    log_q_un = tilted_log_density(grid_points, _p, Reward(D, x_refs), lam=LAM)
 
     assert log_q_un.shape == (GRID_N * GRID_N,)
     assert log_q_un.isfinite().all(), "log_q_un has non-finite values (Euclidean)"

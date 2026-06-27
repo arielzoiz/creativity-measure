@@ -20,6 +20,8 @@ from creativity_measure import (
     make_grid,
     smc_sample,
     SMCResult,
+    Reward,
+    IndependenceKernel,
 )
 from creativity_measure.smc import (
     _ess_from_logw,
@@ -74,10 +76,10 @@ def _ring_density(n_total: int = 8, hole_idx: int = 0,
 # Grid / histogram helpers (PMF over grid nodes; cell_area cancels)
 # ---------------------------------------------------------------------------
 
-def _grid_q_pmf(p, D, refs, lam, weights, grid_n):
+def _grid_q_pmf(p, reward, lam, grid_n):
     """Ground-truth normalized q on a grid, returned as (grid_points, q_pmf)."""
     gp, _XX, _YY, cell = make_grid(XLIM, YLIM, grid_n=grid_n, dtype=dtype)
-    log_q_un = tilted_log_density(gp, p, D, refs, lam, weights=weights)
+    log_q_un = tilted_log_density(gp, p, reward, lam)
     _log_q, q, _Z = grid_normalize(log_q_un, cell)
     q_flat = q.reshape(-1)
     return gp, q_flat / q_flat.sum()
@@ -187,8 +189,8 @@ def test_multi_level_schedule_terminates():
     pool = p.sample(400, seed=0)
     refs = pool[pool[:, 0] > 1.5][:40]
 
-    res = smc_sample(p, D, refs, None, lam=6.0, n_particles=2000,
-                     n_mcmc=4, final_resample=True, seed=0)
+    res = smc_sample(Reward(D, refs), lam=6.0, n_particles=2000,
+                     kernel=IndependenceKernel(p), n_mcmc=4, final_resample=True, seed=0)
     assert len(res.betas) > 1                 # genuinely multi-level
     assert res.betas[-1] == pytest.approx(1.0)
     assert all(0.0 < b <= 1.0 + 1e-9 for b in res.betas)
@@ -198,9 +200,9 @@ def test_multi_level_schedule_terminates():
 def test_determinism_same_seed():
     p, _ = _ring_density()
     D = LpDistance(2.0)
-    refs = RandomRefs(p, distance=D, seed=0).select(6)
-    r1 = smc_sample(p, D, refs, None, lam=3.0, n_particles=200, n_mcmc=2, seed=0)
-    r2 = smc_sample(p, D, refs, None, lam=3.0, n_particles=200, n_mcmc=2, seed=0)
+    reward = RandomRefs(p, distance=D, seed=0).reward(6)
+    r1 = smc_sample(reward, lam=3.0, n_particles=200, kernel=IndependenceKernel(p), n_mcmc=2, seed=0)
+    r2 = smc_sample(reward, lam=3.0, n_particles=200, kernel=IndependenceKernel(p), n_mcmc=2, seed=0)
     assert torch.equal(r1.X, r2.X)
     assert torch.equal(r1.logw, r2.logw)
     assert r1.betas == r2.betas
@@ -216,20 +218,20 @@ def test_2d_recovery_lp():
     lam, grid_n, N = 3.0, 24, 4000
 
     sel = RandomRefs(p, distance=D, seed=0)
-    refs = sel.select(6)
-    gp, q_pmf = _grid_q_pmf(p, D, refs, lam, sel.weights, grid_n)
+    reward = sel.reward(6)
+    gp, q_pmf = _grid_q_pmf(p, reward, lam, grid_n)
 
-    res = smc_sample(p, D, refs, sel.weights, lam=lam, n_particles=N,
-                     n_mcmc=4, seed=0)
+    res = smc_sample(reward, lam=lam, n_particles=N,
+                     kernel=IndependenceKernel(p), n_mcmc=4, seed=0)
     w = _smc_weights(res)
     hist = _hist_pmf(res.X, w, grid_n)
 
     assert _tv(hist, q_pmf) < 0.15
 
     # reward match: E_q[f] from SMC ~ grid Sigma q*f
-    f_grid = expected_distance(D, gp, refs, weights=sel.weights)
+    f_grid = reward(gp)
     Ef_grid = float((q_pmf * f_grid).sum())
-    f_smc = expected_distance(D, res.X, refs, weights=sel.weights)
+    f_smc = reward(res.X)
     Ef_smc = float((w * f_smc).sum())
     assert Ef_smc == pytest.approx(Ef_grid, rel=0.12)
 
@@ -242,20 +244,20 @@ def test_2d_recovery_global_iem():
     lam, grid_n, N = 2.0, 16, 1500
 
     sel = RandomRefs(p, distance=D, seed=0)
-    refs = sel.select(4)
-    gp, q_pmf = _grid_q_pmf(p, D, refs, lam, sel.weights, grid_n)
+    reward = sel.reward(4)
+    gp, q_pmf = _grid_q_pmf(p, reward, lam, grid_n)
 
-    res = smc_sample(p, D, refs, sel.weights, lam=lam, n_particles=N,
-                     n_mcmc=2, seed=0)
+    res = smc_sample(reward, lam=lam, n_particles=N,
+                     kernel=IndependenceKernel(p), n_mcmc=2, seed=0)
     w = _smc_weights(res)
     hist = _hist_pmf(res.X, w, grid_n)
 
     # IEM path on a coarse grid / few particles -> looser tolerance than Lp
     assert _tv(hist, q_pmf) < 0.2
 
-    f_grid = expected_distance(D, gp, refs, weights=sel.weights)
+    f_grid = reward(gp)
     Ef_grid = float((q_pmf * f_grid).sum())
-    f_smc = expected_distance(D, res.X, refs, weights=sel.weights)
+    f_smc = reward(res.X)
     Ef_smc = float((w * f_smc).sum())
     assert Ef_smc == pytest.approx(Ef_grid, rel=0.2)
 
@@ -263,10 +265,10 @@ def test_2d_recovery_global_iem():
 def test_lambda0_recovers_p():
     p, _ = _ring_density()
     D = LpDistance(2.0)
-    refs = RandomRefs(p, distance=D, seed=0).select(6)
+    reward = RandomRefs(p, distance=D, seed=0).reward(6)
     N = 5000
 
-    res = smc_sample(p, D, refs, None, lam=0.0, n_particles=N, n_mcmc=3, seed=0)
+    res = smc_sample(reward, lam=0.0, n_particles=N, kernel=IndependenceKernel(p), n_mcmc=3, seed=0)
     w = _smc_weights(res)
     hist_smc = _hist_pmf(res.X, w, grid_n=20)
 
@@ -281,12 +283,12 @@ def test_monotonicity_in_lambda():
     """Larger lambda shifts mass to higher-f regions -> larger E_q[f]."""
     p, _ = _ring_density()
     D = LpDistance(2.0)
-    refs = RandomRefs(p, distance=D, seed=0).select(6)
+    reward = RandomRefs(p, distance=D, seed=0).reward(6)
 
     def Ef(lam):
-        res = smc_sample(p, D, refs, None, lam=lam, n_particles=3000, n_mcmc=3, seed=0)
+        res = smc_sample(reward, lam=lam, n_particles=3000, kernel=IndependenceKernel(p), n_mcmc=3, seed=0)
         w = _smc_weights(res)
-        return float((w * expected_distance(D, res.X, refs)).sum())
+        return float((w * reward(res.X)).sum())
 
     assert Ef(0.0) < Ef(2.0) < Ef(5.0)
 
@@ -301,21 +303,21 @@ def test_selector_swap_random_vs_weighted_fps():
     N = 400
 
     sel_u = RandomRefs(p, distance=D, seed=0)
-    refs_u = sel_u.select(8)
-    assert sel_u.weights is None
-    res_u = smc_sample(p, D, refs_u, sel_u.weights, lam=3.0,
-                       n_particles=N, n_mcmc=2, seed=0)
+    reward_u = sel_u.reward(8)
+    assert reward_u.weights is None                         # uniform selector -> no weights
+    res_u = smc_sample(reward_u, lam=3.0, n_particles=N,
+                       kernel=IndependenceKernel(p), n_mcmc=2, seed=0)
     assert res_u.X.shape == (N, 2)
     assert res_u.X.isfinite().all()
 
     sel_w = WeightedFPSRefs(
         p, distance=D, seed=0, pool_size=300, est_floor=300, points_per_cell=16
     )
-    refs_w = sel_w.select(8)
-    w = sel_w.weights
+    reward_w = sel_w.reward(8)                              # Voronoi weights ride along, can't be dropped
+    refs_w, w = reward_w.x_refs, reward_w.weights
     assert w is not None and w.shape == (8,)
-    res_w = smc_sample(p, D, refs_w, w, lam=3.0,
-                       n_particles=N, n_mcmc=2, seed=0)
+    res_w = smc_sample(reward_w, lam=3.0, n_particles=N,
+                       kernel=IndependenceKernel(p), n_mcmc=2, seed=0)
     assert res_w.X.shape == (N, 2)
     assert res_w.X.isfinite().all()
 
@@ -325,3 +327,30 @@ def test_selector_swap_random_vs_weighted_fps():
     f_weighted = expected_distance(D, X, refs_w, weights=w)
     f_uniform = expected_distance(D, X, refs_w, weights=None)
     assert not torch.allclose(f_weighted, f_uniform)
+
+
+def test_reward_weighted_pipeline_consistency():
+    """A WeightedFPSRefs `reward` drives BOTH the grid ground truth and the SMC sampler with the
+    same non-uniform weights, so the recovered E_q[f] matches the grid E_q[f]. This is the property
+    the Reward bundle guarantees: switching to a weighted selector is correct on both paths with no
+    hand-threaded weights."""
+    p, _ = _ring_density()
+    D = LpDistance(2.0)
+    lam, grid_n, N = 3.0, 24, 4000
+
+    sel = WeightedFPSRefs(
+        p, distance=D, seed=0, pool_size=300, est_floor=300, points_per_cell=16
+    )
+    reward = sel.reward(8)
+    assert reward.weights is not None
+    # weights are genuinely non-uniform (otherwise the test would not exercise the weighting)
+    assert not torch.allclose(reward.weights, torch.full_like(reward.weights, 1.0 / reward.weights.shape[0]))
+
+    gp, q_pmf = _grid_q_pmf(p, reward, lam, grid_n)         # grid truth uses reward's weights
+    res = smc_sample(reward, lam=lam, n_particles=N,
+                     kernel=IndependenceKernel(p), n_mcmc=4, seed=0)
+    w = _smc_weights(res)
+
+    Ef_grid = float((q_pmf * reward(gp)).sum())
+    Ef_smc = float((w * reward(res.X)).sum())
+    assert Ef_smc == pytest.approx(Ef_grid, rel=0.12)

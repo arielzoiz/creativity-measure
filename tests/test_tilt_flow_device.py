@@ -20,6 +20,7 @@ from creativity_measure import (
     grid_normalize,
     make_grid,
     set_default_device,
+    Reward,
 )
 
 # Ring GMM with a hole (same shape as the demo pipeline), as device/dtype-agnostic constants.
@@ -69,7 +70,7 @@ def run_tilt_flow(device: torch.device, dtype: torch.dtype) -> torch.Tensor:
     gammas = torch.logspace(-10, 10, 20, base=2, dtype=dtype).to(device)
 
     D = GlobalIEMDistance(p, gammas, num_eps=4)
-    log_q_un = tilted_log_density(grid_points, p, D, x_refs, lam=LAM)
+    log_q_un = tilted_log_density(grid_points, p, Reward(D, x_refs), lam=LAM)
 
     assert log_q_un.shape == (GRID_N * GRID_N,)
     assert log_q_un.device.type == device.type, f"expected {device.type}, got {log_q_un.device.type}"

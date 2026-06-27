@@ -67,6 +67,7 @@ EXPECTED_NAMES = [
     "expected_distance",
     "tilted_log_density",
     "grid_normalize",
+    "Reward",
     "make_grid",
     "plot_field",
     "plot_samples",

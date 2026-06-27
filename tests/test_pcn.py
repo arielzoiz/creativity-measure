@@ -18,6 +18,8 @@ from creativity_measure import (
     grid_normalize,
     make_grid,
     smc_sample,
+    Reward,
+    IndependenceKernel,
     PCNKernel,
     density_generator,
     edm_generator,
@@ -73,9 +75,9 @@ def _lambda0(p, D, refs):
     return (p.log_p_X(refs).std() / expected_distance(D, refs, refs).std()).item()
 
 
-def _grid_q_pmf(p, D, refs, lam, grid_n):
+def _grid_q_pmf(p, reward, lam, grid_n):
     gp, _XX, _YY, cell = make_grid(XLIM, YLIM, grid_n=grid_n, dtype=dtype)
-    log_q_un = tilted_log_density(gp, p, D, refs, lam)
+    log_q_un = tilted_log_density(gp, p, reward, lam)
     _lq, q, _Z = grid_normalize(log_q_un, cell)
     q_flat = q.reshape(-1)
     return gp, q_flat / q_flat.sum()
@@ -105,7 +107,7 @@ def test_pcn_lambda0_recovers_p():
     p = _ring_density()
     D = _global_iem(p)
     refs = _refs(p)
-    res = smc_sample(None, D, refs, None, lam=0.0, n_particles=3000,
+    res = smc_sample(Reward(D, refs), lam=0.0, n_particles=3000,
                      kernel=_pcn(p), n_mcmc=2, final_resample=True, seed=0)
     base = p.sample(3000)
     assert _tv(_hist_pmf(res.X, 24), _hist_pmf(base, 24)) < 0.15
@@ -120,17 +122,18 @@ def test_pcn_recovery_vs_grid_and_independence():
     D = _global_iem(p)
     refs = _refs(p)
     lam = _lambda0(p, D, refs)
+    reward = Reward(D, refs)
     grid_n = 24
-    gp, q_pmf = _grid_q_pmf(p, D, refs, lam, grid_n=grid_n)
+    gp, q_pmf = _grid_q_pmf(p, reward, lam, grid_n=grid_n)
 
-    res_pcn = smc_sample(None, D, refs, None, lam=lam, n_particles=1500,
+    res_pcn = smc_sample(reward, lam=lam, n_particles=1500,
                          kernel=_pcn(p, s0=0.5), n_mcmc=3, final_resample=True, seed=0)
-    res_ind = smc_sample(p, D, refs, None, lam=lam, n_particles=1500,
-                         n_mcmc=3, final_resample=True, seed=0)
+    res_ind = smc_sample(reward, lam=lam, n_particles=1500,
+                         kernel=IndependenceKernel(p), n_mcmc=3, final_resample=True, seed=0)
 
     # 1) reward match (robust scalar)
-    ef_grid = float((q_pmf * expected_distance(D, gp, refs)).sum())
-    ef_pcn = float(expected_distance(D, res_pcn.X, refs).mean())
+    ef_grid = float((q_pmf * reward(gp)).sum())
+    ef_pcn = float(reward(res_pcn.X).mean())
     assert ef_pcn == pytest.approx(ef_grid, rel=0.15)
 
     # 2) spatial match: pCN is at least as close to grid q as the validated independence kernel, and both
@@ -150,17 +153,18 @@ def test_pcn_beats_independence_high_lambda():
     D = _global_iem(p)
     refs = _refs(p)
     lam = 3.5 * _lambda0(p, D, refs)
+    reward = Reward(D, refs)
     N = 800
 
-    rp = smc_sample(None, D, refs, None, lam=lam, n_particles=N,
+    rp = smc_sample(reward, lam=lam, n_particles=N,
                     kernel=_pcn(p, s0=0.5), n_mcmc=2, final_resample=True, seed=0)
-    ri = smc_sample(p, D, refs, None, lam=lam, n_particles=N,
-                    n_mcmc=2, final_resample=True, seed=0)
+    ri = smc_sample(reward, lam=lam, n_particles=N,
+                    kernel=IndependenceKernel(p), n_mcmc=2, final_resample=True, seed=0)
 
     uniq_p = torch.unique(rp.X, dim=0).shape[0]
     uniq_i = torch.unique(ri.X, dim=0).shape[0]
-    ef_p = float(expected_distance(D, rp.X, refs).mean())
-    ef_i = float(expected_distance(D, ri.X, refs).mean())
+    ef_p = float(reward(rp.X).mean())
+    ef_i = float(reward(ri.X).mean())
     acc_p = sum(rp.acc_history) / len(rp.acc_history)
 
     assert uniq_p > 2 * uniq_i           # independence collapses to few distinct particles; pCN does not
@@ -172,8 +176,9 @@ def test_pcn_determinism():
     p = _ring_density()
     D = GlobalIEMDistance(p, torch.logspace(-2, 6, 12, base=2, dtype=dtype), num_eps=4, seed=123)
     refs = _refs(p, r=8)
-    a = smc_sample(None, D, refs, None, lam=2.0, n_particles=200, kernel=_pcn(p), n_mcmc=2, seed=0)
-    b = smc_sample(None, D, refs, None, lam=2.0, n_particles=200, kernel=_pcn(p), n_mcmc=2, seed=0)
+    reward = Reward(D, refs)
+    a = smc_sample(reward, lam=2.0, n_particles=200, kernel=_pcn(p), n_mcmc=2, seed=0)
+    b = smc_sample(reward, lam=2.0, n_particles=200, kernel=_pcn(p), n_mcmc=2, seed=0)
     assert torch.equal(a.X, b.X)
     assert torch.equal(a.logw, b.logw)
 
@@ -194,7 +199,7 @@ def test_pcn_pixel_seam_smoke():
     G = edm_generator(mock_denoiser, img_shape=(C, H, W), sigma_max=20.0, n_steps=24)
     refs = torch.randn(8, d, dtype=dtype)              # flat references in pixel space
 
-    res = smc_sample(None, D, refs, None, lam=0.0, n_particles=64,
+    res = smc_sample(Reward(D, refs), lam=0.0, n_particles=64,
                      kernel=PCNKernel(G, d), n_mcmc=2, final_resample=True, seed=0)
 
     assert res.X.shape == (64, d)
