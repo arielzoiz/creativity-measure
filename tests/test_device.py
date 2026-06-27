@@ -6,7 +6,9 @@ import torch
 from torch.distributions import Categorical, MixtureSameFamily, MultivariateNormal
 
 from creativity_measure.density import Density
-from creativity_measure.device import default_device, set_default_device
+from creativity_measure.device import (
+    default_device, set_default_device, default_dtype, set_default_dtype,
+)
 from creativity_measure.distances.global_iem import GlobalIEMDistance
 from creativity_measure.refset.fps import FPSRefs
 from creativity_measure.refset.random_refs import RandomRefs
@@ -88,6 +90,18 @@ def test_set_default_device_override_and_reset():
         assert p.sample(2, seed=0).device.type == "cpu"
     finally:
         set_default_device(None)   # re-enable auto so other tests are unaffected
+
+
+def test_set_default_dtype_override_and_reset():
+    assert default_dtype() == torch.float64           # float64 is the library default
+    try:
+        set_default_dtype(torch.float32)
+        assert default_dtype() == torch.float32
+        p = Density(log_pX, log_pY, sample_fn=sampler, d=2)
+        assert p.sample(2, seed=0).dtype == torch.float32   # Density.sample stamps the default dtype
+    finally:
+        set_default_dtype(None)    # re-enable the float64 default so other tests are unaffected
+    assert default_dtype() == torch.float64
 
 
 # ---------------------------------------------------------------------------

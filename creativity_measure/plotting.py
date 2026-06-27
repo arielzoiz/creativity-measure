@@ -6,14 +6,16 @@ import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from creativity_measure.device import default_device
+from creativity_measure.device import default_device, default_dtype
 from creativity_measure.tilt import grid_normalize
 
 
-def make_grid(xlim, ylim, grid_n=50, device=None, dtype=torch.float64):
-    """Returns (grid_points (G,2), XX, YY, cell_area). device=None => default_device()."""
+def make_grid(xlim, ylim, grid_n=50, device=None, dtype=None):
+    """Returns (grid_points (G,2), XX, YY, cell_area). device=None => default_device(); dtype=None => default_dtype()."""
     if device is None:
         device = default_device()
+    if dtype is None:
+        dtype = default_dtype()
     xs = torch.linspace(xlim[0], xlim[1], grid_n, device=device, dtype=dtype)
     ys = torch.linspace(ylim[0], ylim[1], grid_n, device=device, dtype=dtype)
     XX, YY = torch.meshgrid(xs, ys, indexing='xy')

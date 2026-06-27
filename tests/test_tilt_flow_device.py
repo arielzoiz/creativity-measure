@@ -20,6 +20,7 @@ from creativity_measure import (
     grid_normalize,
     make_grid,
     set_default_device,
+    set_default_dtype,
     Reward,
 )
 
@@ -58,27 +59,34 @@ def build_density(device: torch.device, dtype: torch.dtype) -> Density:
         comp = torch.randint(K, (n,), device=device, generator=generator)
         return means[comp] + SIGMA * torch.randn(n, 2, device=device, dtype=dtype, generator=generator)
 
-    return Density(log_pX, log_pY, sample_fn=sample, d=2, device=device)
+    return Density(log_pX, log_pY, sample_fn=sample, d=2)
 
 
 def run_tilt_flow(device: torch.device, dtype: torch.dtype) -> torch.Tensor:
     """Full flow on (device, dtype). Returns the normalized-density integral (should be ~1)."""
-    p = build_density(device, dtype)
-    grid_points, _, _, cell_area = make_grid((-6, 6), (-6, 6), grid_n=GRID_N, device=device, dtype=dtype)
-    x_refs = p.sample(6, seed=0)                                  # lands on `device` via Density.sample
-    # logspace is built on CPU then moved: aten::logspace has no MPS kernel (a known MPS op gap).
-    gammas = torch.logspace(-10, 10, 20, base=2, dtype=dtype).to(device)
+    # device.py is the single origination authority; set it once so Density.sample lands here.
+    set_default_device(device)
+    set_default_dtype(dtype)
+    try:
+        p = build_density(device, dtype)
+        grid_points, _, _, cell_area = make_grid((-6, 6), (-6, 6), grid_n=GRID_N, device=device, dtype=dtype)
+        x_refs = p.sample(6, seed=0)                              # lands on (device, dtype) via Density.sample
+        # logspace is built on CPU then moved: aten::logspace has no MPS kernel (a known MPS op gap).
+        gammas = torch.logspace(-10, 10, 20, base=2, dtype=dtype).to(device)
 
-    D = GlobalIEMDistance(p, gammas, num_eps=4)
-    log_q_un = tilted_log_density(grid_points, p, Reward(D, x_refs), lam=LAM)
+        D = GlobalIEMDistance(p, gammas, num_eps=4)
+        log_q_un = tilted_log_density(grid_points, p, Reward(D, x_refs), lam=LAM)
 
-    assert log_q_un.shape == (GRID_N * GRID_N,)
-    assert log_q_un.device.type == device.type, f"expected {device.type}, got {log_q_un.device.type}"
-    assert log_q_un.isfinite().all(), "log_q_un has non-finite values"
+        assert log_q_un.shape == (GRID_N * GRID_N,)
+        assert log_q_un.device.type == device.type, f"expected {device.type}, got {log_q_un.device.type}"
+        assert log_q_un.isfinite().all(), "log_q_un has non-finite values"
 
-    _, q, _ = grid_normalize(log_q_un, cell_area)
-    assert (q >= 0).all()
-    return q.sum() * cell_area
+        _, q, _ = grid_normalize(log_q_un, cell_area)
+        assert (q >= 0).all()
+        return q.sum() * cell_area
+    finally:
+        set_default_device(None)
+        set_default_dtype(None)
 
 
 def _pick_gpu() -> tuple[torch.device, torch.dtype] | None:
@@ -102,11 +110,6 @@ def test_tilt_flow_gpu():
     assert gpu is not None
     device, dtype = gpu
     atol = 1e-6 if dtype == torch.float64 else 1e-4   # float32 (MPS) accumulates more rounding
-    try:
-        if device.type != "cuda":
-            set_default_device(device)                # opt into MPS for the resolver
-        integral = run_tilt_flow(device, dtype)
-    finally:
-        set_default_device(None)                       # restore auto-selection
+    integral = run_tilt_flow(device, dtype)            # run_tilt_flow sets device.py defaults itself
     assert torch.allclose(integral.cpu().double(), torch.tensor(1.0, dtype=torch.float64), atol=atol), \
         f"{device.type} integral should be ~1, got {integral.item()}"

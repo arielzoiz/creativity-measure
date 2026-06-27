@@ -1,5 +1,7 @@
 from creativity_measure.density import Density
-from creativity_measure.device import default_device, set_default_device
+from creativity_measure.device import (
+    default_device, set_default_device, default_dtype, set_default_dtype,
+)
 from creativity_measure.distances import (
     Distance, LpDistance, LocalIEMDistance,
     GlobalIEMDistance, GeneralizedGlobalIEMDistance, IEMFType, edm_score_fn,

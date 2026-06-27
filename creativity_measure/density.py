@@ -5,7 +5,7 @@ from jaxtyping import Float
 from torch import Tensor
 
 from creativity_measure._types import LogP, LogPY, Sampler
-from creativity_measure.device import default_device
+from creativity_measure.device import default_device, default_dtype
 
 
 @dataclass
@@ -23,15 +23,15 @@ class Density:
                    passed in. The ``generator`` argument (a ``torch.Generator`` or ``None``) lets callers thread a local RNG so sampling is reentrant
                    and reproducibility does not couple to global RNG state; when ``None`` the sampler may fall back to the global torch RNG.
         d:         dimensionality, else inferred on first use.
-        device:    where sample() places its output. None => default_device() (CUDA if available, else CPU), resolved at call time so the
-                   whole pipeline follows the chosen device with no user action.
+
+    Device/dtype: fresh samples are placed on ``default_device()`` with ``default_dtype()`` (the single origination authority in ``creativity_measure.device``);
+    set them once via ``set_default_device`` / ``set_default_dtype``.
     """
 
     log_p_X: LogP
     log_p_Y: LogPY | None = None
     sample_fn: Sampler | None = None
     d: int | None = None
-    device: str | torch.device | None = None
 
     def sample(
         self, n: int, seed: int | None = None, *, generator: torch.Generator | None = None
@@ -45,5 +45,4 @@ class Density:
             raise RuntimeError("This Density has no sampler; pass x_refs explicitly.")
         if generator is None and seed is not None:
             torch.manual_seed(seed)
-        dev = self.device if self.device is not None else default_device()
-        return self.sample_fn(n, generator).to(dev)
+        return self.sample_fn(n, generator).to(device=default_device(), dtype=default_dtype())
