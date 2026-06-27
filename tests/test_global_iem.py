@@ -121,7 +121,7 @@ def test_pairwise_matches_manual_increments():
 # ---------------------------------------------------------------------------
 
 def test_score_fn_matches_autograd():
-    from creativity_measure.distances.global_iem import marginal_score
+    from creativity_measure.scores import marginal_score
     # a score_fn that simply wraps the autograd marginal score must reproduce the density path
     score_fn = lambda y, g: marginal_score(y, g, p)
     d_auto = GlobalIEMDistance(p, gammas, num_eps=8, seed=123)

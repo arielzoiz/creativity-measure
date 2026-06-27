@@ -29,8 +29,8 @@ from jaxtyping import Float
 from torch import Tensor
 
 from creativity_measure.density import Density
-from creativity_measure.distances.edm_adapter import Denoiser
-from creativity_measure.distances.global_iem import marginal_score
+from creativity_measure.distances.edm_adapter import Denoiser, sigma_to_gamma
+from creativity_measure.scores import marginal_score
 
 
 def heun_prob_flow(
@@ -75,14 +75,13 @@ def heun_prob_flow(
 def density_denoiser(density: Density) -> Denoiser:
     """Autograd EDM denoiser ``D(x_sigma, sigma) = E[X | x_sigma]`` for a 2D ``Density`` (no learned model).
 
-    Uses the validated adapter relation ``D(x_sigma, sigma) = x_sigma + grad_y log p_Y(gamma*x_sigma, gamma)``
-    with ``gamma = 1/sigma^2`` (cf. ``edm_adapter.edm_score_fn``); the marginal score comes from
-    ``global_iem.marginal_score`` (autograd through ``density.log_p_Y``, ``score_fn=None``). For ``X~N(0,I)``
+    Uses the validated adapter relation ``D(x_sigma, sigma) = x_sigma + grad_y log p_Y(gamma*x_sigma, gamma)`` with ``gamma = 1/sigma^2``;
+    the marginal score comes from ``scores.marginal_score`` (autograd through ``density.log_p_Y``, ``score_fn=None``). For ``X~N(0,I)``
     this reduces to ``D = x_sigma / (1 + sigma^2)``.
     """
     def denoiser(x_sigma: Float[Tensor, "B d"], sigma: Float[Tensor, "B"]) -> Float[Tensor, "B d"]:
         s = sigma.reshape(-1)[0]                   # scalar: the ODE uses one sigma across the batch
-        gamma = 1.0 / (s * s)
+        gamma = sigma_to_gamma(s)
         y = gamma * x_sigma
         return x_sigma + marginal_score(y, gamma, density)
     return denoiser

@@ -33,6 +33,7 @@ from creativity_measure._types import ScoreFn
 from creativity_measure.density import Density
 from creativity_measure.distances.base import Distance
 from creativity_measure.distances.utils import simulate_brownian
+from creativity_measure.scores import marginal_score
 
 
 @dataclass(frozen=True)
@@ -67,14 +68,8 @@ def score_diff_y(
     else obtained by autograd through density.log_p_Y.
     """
     g1 = x - y / gamma                                  # ∇_y log p(y|x,g), closed form
-    if score_fn is not None:
-        return g1 - score_fn(y, gamma)                  # learned marginal score
-    if density is None or density.log_p_Y is None:
-        raise RuntimeError("Provide either score_fn or a Density exposing log_p_Y")
-    y_g = y.detach().clone().requires_grad_(True)       # isolate y so we can take d/dy at this point
-    # .sum() lets one grad call return per-row gradients (rows are independent)
-    g2 = torch.autograd.grad(density.log_p_Y(y_g, gamma).sum(), y_g)[0].detach()
-    return g1 - g2
+    # ∇_y log p_yg(y): the shared density-level marginal score (score_fn, else autograd through log_p_Y)
+    return g1 - marginal_score(y, gamma, density, score_fn)
 
 
 def iem_sq_increments_one_to_many(

@@ -21,6 +21,16 @@ from creativity_measure._types import ScoreFn
 Denoiser = Callable[[Tensor, Tensor], Tensor]
 
 
+def gamma_to_sigma(gamma: Tensor) -> Tensor:
+    """EDM noise scale from the gamma-convention precision:  sigma = 1 / sqrt(gamma)."""
+    return gamma.rsqrt()
+
+
+def sigma_to_gamma(sigma: Tensor) -> Tensor:
+    """gamma-convention precision from the EDM noise scale:  gamma = 1 / sigma^2."""
+    return 1.0 / (sigma * sigma)
+
+
 def edm_score_fn(denoiser: Denoiser, img_shape: tuple[int, ...] | None = None) -> ScoreFn:
     """Wrap an EDM-style denoiser D(y_sigma, sigma) = E[X | y_sigma] into a marginal-score ScoreFn.
 
@@ -36,7 +46,7 @@ def edm_score_fn(denoiser: Denoiser, img_shape: tuple[int, ...] | None = None) -
     gamma in [1/sigma_max^2, 1/sigma_min^2].
     """
     def score_fn(y: Float[Tensor, "B d"], gamma: Float[Tensor, ""]) -> Float[Tensor, "B d"]:
-        sigma = gamma.rsqrt()                                  # 1 / sqrt(gamma)
+        sigma = gamma_to_sigma(gamma)                          # 1 / sqrt(gamma)
         y_sigma = y / gamma                                    # signal-space obs  x + sigma*eps
         x_in = y_sigma if img_shape is None else y_sigma.reshape(y.shape[0], *img_shape)
         sigma_b = sigma.reshape(1).expand(y.shape[0])          # (B,)
