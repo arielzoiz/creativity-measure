@@ -63,9 +63,9 @@ def _log_pY(y, gamma):
     return torch.logsumexp(logcomp, dim=-1) - _logK
 
 
-def _ring_sample(n):
-    comp = torch.randint(K, (n,))
-    return MEANS[comp] + SIGMA * torch.randn(n, 2, dtype=dtype)
+def _ring_sample(n, generator=None):
+    comp = torch.randint(K, (n,), generator=generator)
+    return MEANS[comp] + SIGMA * torch.randn(n, 2, dtype=dtype, generator=generator)
 
 
 # Shared Density instance for all tests in this module

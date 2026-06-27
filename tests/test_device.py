@@ -44,7 +44,10 @@ def log_pY(y, gamma):
     return torch.logsumexp(log_pi + log_comps, dim=0).reshape(batch_shape)
 
 
-def sampler(n):
+def sampler(n, generator=None):
+    # MixtureSameFamily.sample() takes no generator; this sampler is only used on the
+    # seed/global-RNG path (refset selection), so the threaded generator is unused here.
+    del generator
     covs = sig2 * torch.eye(2, dtype=dtype).expand(2, -1, -1).contiguous()
     mix = MixtureSameFamily(
         Categorical(torch.ones(2, dtype=dtype)),

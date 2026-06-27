@@ -40,9 +40,9 @@ def _ring_density(n_total: int = 12, hole_idx: int = 0, radius: float = 4.0, sig
         quad = diff.pow(2).sum(-1) / var
         return torch.logsumexp(-0.5 * quad - 0.5 * 2 * torch.log(2 * math.pi * var), dim=-1) - logK
 
-    def sample(n):
-        comp = torch.randint(K, (n,))
-        return means[comp] + sigma * torch.randn(n, 2, dtype=dtype)
+    def sample(n, generator=None):
+        comp = torch.randint(K, (n,), generator=generator)
+        return means[comp] + sigma * torch.randn(n, 2, dtype=dtype, generator=generator)
 
     return Density(log_pX, log_pY, sample_fn=sample, d=2)
 

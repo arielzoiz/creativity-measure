@@ -15,12 +15,13 @@ The tempering / ESS / resampling / frozen-refs machinery is shared by both kerne
 
 Notes
 -----
-* **Target distribution.** ``f`` is frozen once: references ``x_refs`` and ``weights`` come from a selector
+* **Target distribution** ``f`` is frozen once: references ``x_refs`` and ``weights`` come from a selector
     and stay fixed; the ``Distance``'s Brownian seed is fixed at construction. This makes ``f`` a deterministic
     function of ``x`` — a required assumption for SMC/MCMC.
-* **Determinism.** All randomness is driven from a single ``torch.Generator(seed)`` (pCN draws / MH-accept / resampling). For 
-    `IndependenceKernel` the global torch RNG is *also* seeded once (it proposes via ``Density.sample``, which seeds the
-    global RNG); same ``seed`` -> identical ``SMCResult.X`` provided the caller fixed the ``Distance`` Brownian seed upstream.
+* **Determinism** All randomness is driven from a single ``torch.Generator(seed)`` (pCN draws / MH-accept / resampling,
+    *and* `IndependenceKernel`'s ``x' ~ p`` proposals, which thread that same generator through ``Density.sample``). No
+    global torch RNG state is touched, so kernel runs are reentrant / thread-safe; same ``seed`` -> identical
+    ``SMCResult.X`` provided the caller fixed the ``Distance`` Brownian seed upstream.
 """
 
 import math
@@ -158,7 +159,7 @@ class IndependenceKernel(Kernel):
         self.p = p
 
     def init(self, n_particles, f, *, generator, device, dtype):
-        X = self.p.sample(n_particles)          # global RNG (seeded once by smc_sample)
+        X = self.p.sample(n_particles, generator=generator)   # threaded RNG (no global state)
         fX = f(X)
         logw = torch.zeros(n_particles, device=X.device, dtype=X.dtype)
         return _State(X=X, fX=fX, logw=logw)
@@ -171,7 +172,7 @@ class IndependenceKernel(Kernel):
         n = state.X.shape[0]
         accs: list[float] = []
         for _ in range(n_mcmc):
-            Xp = self.p.sample(n)
+            Xp = self.p.sample(n, generator=generator)
             fXp = f(Xp)
             log_a = (beta * lam) * (fXp - state.fX)
             u = torch.rand(n, generator=generator, device=state.X.device, dtype=state.X.dtype)
@@ -354,7 +355,7 @@ def smc_sample(
                       for strong tilts — the dominant recovery lever.
         n_mcmc:       rejuvenation moves per level. ``None`` => kernel default (Independence 3; pCN 4).
         final_resample: if ``True``, resample once at the end so the returned particles are equal-weight.
-        seed:         seeds the internal generator (and the global RNG for the independence kernel).
+        seed:         seeds the single internal ``torch.Generator`` that drives every kernel (no global RNG).
 
     Returns: `SMCResult`.
     """
@@ -365,8 +366,6 @@ def smc_sample(
     if n_mcmc is None:
         n_mcmc = kernel.default_n_mcmc
 
-    if seed is not None:
-        torch.manual_seed(seed)
     gen = torch.Generator(device=x_refs.device)
     if seed is not None:
         gen.manual_seed(seed)

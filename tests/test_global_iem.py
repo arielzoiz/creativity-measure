@@ -42,7 +42,9 @@ def log_pY(y, gamma):
     return result_flat.reshape(batch_shape)
 
 
-def sampler(n):
+def sampler(n, generator=None):
+    # MixtureSameFamily.sample() takes no generator; used only on the seed path.
+    del generator
     covs = sig2 * torch.eye(2, dtype=dtype).expand(2, -1, -1).contiguous()
     mix = MixtureSameFamily(
         Categorical(torch.ones(2, dtype=dtype)),

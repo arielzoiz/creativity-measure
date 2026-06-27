@@ -54,9 +54,9 @@ def build_density(device: torch.device, dtype: torch.dtype) -> Density:
         logcomp = -0.5 * (quad + 2 * torch.log(2 * math.pi * var))
         return torch.logsumexp(logcomp, dim=-1) - _logK
 
-    def sample(n):
-        comp = torch.randint(K, (n,), device=device)
-        return means[comp] + SIGMA * torch.randn(n, 2, device=device, dtype=dtype)
+    def sample(n, generator=None):
+        comp = torch.randint(K, (n,), device=device, generator=generator)
+        return means[comp] + SIGMA * torch.randn(n, 2, device=device, dtype=dtype, generator=generator)
 
     return Density(log_pX, log_pY, sample_fn=sample, d=2, device=device)
 

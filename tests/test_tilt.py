@@ -227,9 +227,9 @@ def _ring_gmm_density() -> Density:
         logcomp = -0.5 * (quad + 2 * torch.log(2 * math.pi * var))
         return torch.logsumexp(logcomp, dim=-1) - logK
 
-    def sample(n):
-        comp = torch.randint(K, (n,))
-        return means[comp] + sigma * torch.randn(n, 2, dtype=dtype)
+    def sample(n, generator=None):
+        comp = torch.randint(K, (n,), generator=generator)
+        return means[comp] + sigma * torch.randn(n, 2, dtype=dtype, generator=generator)
 
     return Density(log_pX, log_pY, sample_fn=sample, d=2)
 
