@@ -5,7 +5,7 @@ from creativity_measure.distances import (
     GlobalIEMDistance, GeneralizedGlobalIEMDistance, IEMFType, edm_score_fn,
 )
 from creativity_measure.tilt import (
-    expected_distance, tilted_log_density, grid_normalize,
+    expected_distance, tilted_log_density, grid_normalize, Reward,
 )
 from creativity_measure.plotting import (
     make_grid, plot_field, plot_samples, panel_grid, lambda_sweep,

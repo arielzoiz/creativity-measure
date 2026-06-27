@@ -2,13 +2,13 @@
 
 Dimension-agnostic SMC with a **pluggable rejuvenation kernel**:
 
-* :class:`IndependenceKernel` (Phase 1) — global independence-MH: proposes fresh draws ``x' ~ p``; the
-  base density cancels in the acceptance ratio (no ``log p``, no gradients). Efficient when ``q ≈ p``.
-* :class:`PCNKernel` (Phase 2) — a *local*, prior-preserving move in the diffusion model's latent Gaussian
-  space. Carries each particle as a latent ``z`` with ``x = G(z)`` (deterministic EDM prob-flow ODE, see
-  ``creativity_measure/generator.py``); a pCN proposal ``z' = sqrt(1-s^2) z + s·xi`` is reversible w.r.t.
-  ``N(0,I)``, so the Gaussian prior cancels and acceptance is ``min(1, exp[beta·lambda·(f(G(z'))-f(G(z)))])``.
-  Mixes well when ``q`` is pushed off the data manifold (high ``lambda``), where independence-MH collapses.
+* `IndependenceKernel` — global independence-MH: proposes fresh draws ``x' ~ p``; the
+    base density cancels in the acceptance ratio (no ``log p``, no gradients). Efficient when ``q ≈ p``.
+* `PCNKernel` — a *local*, prior-preserving move in the diffusion model's latent Gaussian
+    space. Carries each particle as a latent ``z`` with ``x = G(z)`` (deterministic EDM prob-flow ODE, see
+    ``creativity_measure/generator.py``); a pCN proposal ``z' = sqrt(1-s^2) z + s·xi`` is reversible w.r.t. ``N(0,I)``,
+    so the Gaussian prior cancels and acceptance is ``min(1, exp[beta·lambda·(f(G(z'))-f(G(z)))])``.
+    Mixes well when ``q`` is pushed off the data manifold (higher ``lambda``), where independence-MH collapses.
 
 The tempering / ESS / resampling / frozen-refs machinery is shared by both kernels; ``f`` is the weight-aware
 ``tilt.expected_distance`` evaluated in data space against frozen references (identical for both kernels).
@@ -16,15 +16,12 @@ The tempering / ESS / resampling / frozen-refs machinery is shared by both kerne
 Notes
 -----
 * **Target distribution.** ``f`` is frozen once: references ``x_refs`` and ``weights`` come from a selector
-  and stay fixed; the ``Distance``'s Brownian seed is fixed at construction. This makes ``f`` a deterministic
-  function of ``x`` — the assumption that makes the SMC/MCMC theory apply exactly.
-* **Determinism.** All randomness is driven from a single ``torch.Generator(seed)`` (pCN draws / MH-accept /
-  resampling). For :class:`IndependenceKernel` the global torch RNG is *also* seeded once (it proposes via
-  ``Density.sample``, which seeds the global RNG); same ``seed`` -> identical ``SMCResult.X`` provided the
-  caller fixed the ``Distance`` Brownian seed upstream.
+    and stay fixed; the ``Distance``'s Brownian seed is fixed at construction. This makes ``f`` a deterministic
+    function of ``x`` — a required assumption for SMC/MCMC.
+* **Determinism.** All randomness is driven from a single ``torch.Generator(seed)`` (pCN draws / MH-accept / resampling). For 
+    `IndependenceKernel` the global torch RNG is *also* seeded once (it proposes via ``Density.sample``, which seeds the
+    global RNG); same ``seed`` -> identical ``SMCResult.X`` provided the caller fixed the ``Distance`` Brownian seed upstream.
 """
-
-from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
@@ -36,8 +33,7 @@ from jaxtyping import Float, Int
 from torch import Tensor
 
 from creativity_measure.density import Density
-from creativity_measure.distances.base import Distance
-from creativity_measure.tilt import expected_distance
+from creativity_measure.tilt import Reward
 
 RewardFn = Callable[[Tensor], Tensor]   # f(X) -> (N,)
 
@@ -47,10 +43,10 @@ class SMCResult:
     """Output of :func:`smc_sample`.
 
     Attributes:
-        X:           final particles, (N, d).
-        logw:        final unnormalized log-weights, (N,). ``softmax(logw)`` gives the self-normalized
-                     q̂_lambda weights (all-equal if the run ended on a resample or with ``final_resample``).
-        betas:       adaptive temperature schedule actually used (one entry per level).
+        X:          final particles, (N, d).
+        logw:       final unnormalized log-weights, (N,). ``softmax(logw)`` gives the self-normalized
+                    q̂_lambda weights (all-equal if the run ended on a resample or with ``final_resample``).
+        betas:      adaptive temperature schedule actually used (one entry per level).
         ess_history: ESS at each level (post-reweight, pre-resample).
         acc_history: mean rejuvenation acceptance rate at each level.
     """
@@ -131,12 +127,7 @@ class _State:
 
 
 class Kernel(ABC):
-    """A rejuvenation kernel: how particles are initialized and moved (invariant to π_β).
-
-    Each kernel also carries its **calibrated default schedule** (`default_ess_target`, `default_n_mcmc`),
-    which :func:`smc_sample` uses when the caller leaves those unset — because the *good* schedule depends
-    on the kernel (independence vs local pCN). Defaults here are the standard SMC values; subclasses override.
-    """
+    """A rejuvenation kernel: how particles are initialized and moved (invariant to π_β)."""
 
     default_ess_target: float = 0.5
     default_n_mcmc: int = 3
@@ -161,7 +152,7 @@ class Kernel(ABC):
 
 
 class IndependenceKernel(Kernel):
-    """Phase-1 global independence-MH: proposals ``x' ~ p`` (base density cancels)."""
+    """global independence-MH: proposals ``x' ~ p`` (base density cancels)."""
 
     def __init__(self, p: Density):
         self.p = p
@@ -192,23 +183,17 @@ class IndependenceKernel(Kernel):
 
 
 class PCNKernel(Kernel):
-    """Phase-2 latent-space pCN: local, prior-preserving moves via a generator ``G(z) -> x``.
+    """latent-space pCN: local, prior-preserving moves via a generator ``G(z) -> x``.
 
-    The unitless defaults below were locked by the qualitative calibration in
-    ``phase2_pcn_calibration.ipynb`` (a 2D toy with ``grid_normalize`` ground truth); because pCN is
-    dimension-robust, they transfer to high-d (pixel/latent). The calibration found ``target_acc``
-    essentially insensitive across 0.234-0.45, so we adopt the high-d-optimal ~0.234 (Roberts-Gelman-Gilks).
-    The *dominant* lever for recovery is the SMC **schedule**; this kernel therefore sets the calibrated
-    schedule defaults ``default_ess_target = 0.7`` and ``default_n_mcmc = 4`` (applied by
-    :func:`smc_sample` when the caller leaves ``ess_target`` / ``n_mcmc`` unset). Raise ``ess_target``
-    toward 0.9 for very strong tilts (recovery rose 54% -> 74% as ``ess_target`` went 0.5 -> 0.9).
+    The unitless defaults below were locked by the qualitative calibration in ``phase2_pcn_calibration.ipynb``
+    (a 2D toy with ``grid_normalize`` as ground truth). Raise ``ess_target`` toward 0.9 for strong tilts.
 
     Args:
         generator_fn: deterministic map ``G: (N, latent_dim) -> (N, d)`` with ``G(N(0,I)) ~ p``
-                      (e.g. ``generator.density_generator`` for 2D, ``generator.edm_generator`` for pixels).
-        latent_dim:   flat latent dimensionality (= data dim d).
-        s0:           initial pCN step size in (0, 1); only the warm-up (the step then adapts).
-        target_acc:   acceptance the step size adapts toward (Robbins-Monro); ~0.23 is the high-d optimum.
+                      (``generator.density_generator`` for 2D toy example, ``generator.edm_generator`` for pixel / latent space).
+        latent_dim:   flat latent dimensionality.
+        s0:           initial pCN step size in (0, 1); only the warm-up, the step then adapts.
+        target_acc:   acceptance the step size adapts toward; ~0.23 is the high-d optimum.
         adapt_rate:   log-step adaptation rate.
     """
 
@@ -333,14 +318,11 @@ def _run_smc(
 
 
 def smc_sample(
-    p: Density | None,
-    distance: Distance,
-    x_refs: Float[Tensor, "R d"],
-    weights: Float[Tensor, "R"] | None,
+    reward: Reward,
     lam: float,
     n_particles: int,
     *,
-    kernel: Kernel | None = None,
+    kernel: Kernel,
     ess_target: float | None = None,
     n_mcmc: int | None = None,
     final_resample: bool = False,
@@ -348,63 +330,49 @@ def smc_sample(
 ) -> SMCResult:
     """Sample from  q̂_lambda(x) ∝ p(x) · exp(lambda · f(x))  via adaptive-tempering SMC.
 
-    The reward ``f(x) = Σ_r w_r D(x, x'_r) / Σ_r w_r`` is the weight-aware ``tilt.expected_distance`` against
-    the frozen references; this is identical for every kernel.
+    The reward ``f(x) = Σ_r w_r D(x, x'_r) / Σ_r w_r`` is the frozen `~creativity_measure.tilt.Reward`
+    (distance + references + weights) bundled by a ``refset`` selector.
+    ``f`` is identical for every kernel.
 
-    Choosing parameters (high-d: steer by scalar diagnostics, never by eyeballing samples):
-      * ``lam``        — set ``lambda = m * lambda_0`` with the data-derived scale
-                         ``lambda_0 = std(log p at refs) / std(f at refs)`` and a unitless multiplier ``m``
-                         (how far off the manifold you want).
-      * ``x_refs``/``weights`` — from a ``refset`` selector (auto-R picks ``R`` by a unitless τ-rule).
-      * ``kernel``     — :class:`PCNKernel` for strong / off-manifold tilts (and pixel-ready);
-                         the default :class:`IndependenceKernel` is fine when ``q ≈ p`` (mild tilt).
-      * ``n_particles``— as large as compute allows; check ``SMCResult.ess_history[-1]`` is adequate.
-      * ``ess_target`` / ``n_mcmc`` — leave ``None`` to use the kernel's *calibrated* defaults; these
-                         (and the pCN step on :class:`PCNKernel`) are unitless and transfer across
-                         dimension. Tune via the ESS- and acceptance-vs-β histories, not by eye
-                         (see ``phase2_pcn_calibration.ipynb``).
+    Choosing parameters:
+    ``lam`` - set ``lambda = m * lambda_0`` with the data-derived scale ``lambda_0 = std(log p at refs) / std(f at refs)`` and a
+                    unitless multiplier ``m`` (how far off the manifold you want).
+    ``reward`` — from a ``refset`` selector via ``selector.reward()`` (auto-R picks ``R`` by a
+                    unitless τ-rule; ``RandomRefs`` => uniform weights, ``WeightedFPSRefs`` => Voronoi).
+    ``kernel`` - `PCNKernel` for strong / off-manifold tilts;
+                    `IndependenceKernel`(p) is fine when ``q ≈ p`` (mild tilt). The base density ``p`` lives in `IndependenceKernel`.
+    ``n_particles``— as large as compute allows; check ``SMCResult.ess_history[-1]`` is adequate.
+    ``ess_target`` / ``n_mcmc`` — Tune via the ESS- and acceptance-vs-β histories.
 
     Args:
-        p:            base density. Required (used by the default :class:`IndependenceKernel`); may be ``None``
-                      when an explicit ``kernel`` is given (e.g. :class:`PCNKernel`, which proposes via ``G``).
-        distance:     reward distance ``D`` (via ``.pairwise``).
-        x_refs:       frozen references, (R, d); also fixes the run's device/dtype.
-        weights:      frozen per-reference weights, (R,); ``None`` => uniform.
+        reward:       frozen reward ``f`` (distance, references, weights); its ``x_refs`` also fixes the run's device/dtype.
         lam:          tilt strength ``lambda`` (see "Choosing parameters" above).
         n_particles:  number of SMC particles ``N``.
-        kernel:       rejuvenation kernel; ``None`` => :class:`IndependenceKernel`(p) (Phase-1 behavior).
+        kernel:       rejuvenation kernel (required): `IndependenceKernel`(p) or `PCNKernel`(G, d).
         ess_target:   target ESS as a fraction of ``N`` (tempering target + resampling threshold).
-                      ``None`` => the kernel's calibrated default (Independence 0.5; pCN 0.7). Raise toward
-                      0.9 for very strong tilts — the dominant recovery lever.
+                      ``None`` => the kernel's default (Independence 0.5; pCN 0.7). Raise toward 0.9
+                      for strong tilts — the dominant recovery lever.
         n_mcmc:       rejuvenation moves per level. ``None`` => kernel default (Independence 3; pCN 4).
         final_resample: if ``True``, resample once at the end so the returned particles are equal-weight.
         seed:         seeds the internal generator (and the global RNG for the independence kernel).
 
-    Returns:
-        :class:`SMCResult`.
+    Returns: `SMCResult`.
     """
-    def f(X: Float[Tensor, "B d"]) -> Float[Tensor, "B"]:
-        return expected_distance(distance, X, x_refs, weights=weights)
+    x_refs = reward.x_refs
 
-    if kernel is None:
-        if p is None:
-            raise ValueError("smc_sample needs either `p` (default independence kernel) or an explicit `kernel=`")
-        kernel = IndependenceKernel(p)
-
-    # unset schedule -> the chosen kernel's calibrated default (Independence 0.5/3; pCN 0.7/4)
     if ess_target is None:
         ess_target = kernel.default_ess_target
     if n_mcmc is None:
         n_mcmc = kernel.default_n_mcmc
 
     if seed is not None:
-        torch.manual_seed(seed)                 # global RNG: IndependenceKernel proposes via Density.sample
+        torch.manual_seed(seed)
     gen = torch.Generator(device=x_refs.device)
     if seed is not None:
         gen.manual_seed(seed)
 
     return _run_smc(
-        kernel, f, lam, n_particles,
+        kernel, reward, lam, n_particles,
         ess_target=ess_target, n_mcmc=n_mcmc, final_resample=final_resample,
         generator=gen, device=x_refs.device, dtype=x_refs.dtype,
     )

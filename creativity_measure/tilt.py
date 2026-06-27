@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from jaxtyping import Float
 from torch import Tensor
 
@@ -15,9 +17,9 @@ def expected_distance(
 
     f(X) = sum_r w_r D(X, x'_r) / sum_r w_r.
 
-    weights: per-reference weights (e.g. RefSelector.weights). None => uniform, i.e.
-             the plain mean over refs. Weighted selectors (WeightedFPSRefs) must pass
-             their weights here, otherwise the Voronoi weighting is silently dropped.
+    weights: per-reference weights (e.g. RefSelector.weights). None => uniform, i.e. the plain mean over refs.
+        Weighted selectors (WeightedFPSRefs) must pass their weights here, otherwise the the non-uniform
+        weighting is silently dropped.
     """
     pw = distance.pairwise(X, x_refs)                     # (B, R)
     if weights is None:
@@ -26,25 +28,41 @@ def expected_distance(
     return (pw * w).sum(dim=1) / w.sum()
 
 
+@dataclass(frozen=True)
+class Reward:
+    """The frozen tilt reward  f(X) = sum_r w_r D(X, x'_r) / sum_r w_r, bundled as one object.
+
+    Holds the three pieces that define f: the `distance`, the frozen reference set `x_refs`, and
+    the per-reference `weights` (None => uniform).
+    
+    Frozen so f is fixed once selected - the determinism the SMC/MCMC theory assumes (see `smc.py`).
+    `x_refs` also pins the run's device/dtype.
+    """
+
+    distance: Distance
+    x_refs: Float[Tensor, "R d"]
+    weights: Float[Tensor, "R"] | None = None
+
+    def __call__(self, X: Float[Tensor, "B d"]) -> Float[Tensor, "B"]:
+        return expected_distance(self.distance, X, self.x_refs, weights=self.weights)
+
+
 def tilted_log_density(
     X: Float[Tensor, "B d"],
     density: Density,
-    distance: Distance,
-    x_refs: Float[Tensor, "R d"],
+    reward: Reward,
     lam: float,
-    weights: Float[Tensor, "R"] | None = None,
 ) -> Float[Tensor, "B"]:
     """
+    TOY / LOW-DIM (2D) ONLY. Needs a tractable base log-density `density.log_p_X` and is meant to be fed
+    to `grid_normalize`, so it applies only to the toy/analytic setting.
+
     Unnormalized log of  q_lambda(x) ∝ p(x) * exp(lambda * E_{x'~p}[D(x', x)]).
 
-    Returns log p(X) + lambda * E_{x'~p}[D(x', X)].
-    (The normalizer Z_lambda is omitted; use grid_normalize for 2D, or
-    ignore it for sampling where it cancels.)
-
-    weights: per-reference weights forwarded to expected_distance; None => uniform.
+    Returns log p(X) + lambda * reward(X), where `reward` carries the (distance, refs, weights) that define f.
+    The normalizer Z_lambda is omitted; recover it with grid_normalize, or ignore it for sampling where it cancels.
     """
-    score = expected_distance(distance, X, x_refs, weights=weights)   # (B,)
-    return density.log_p_X(X) + lam * score
+    return density.log_p_X(X) + lam * reward(X)
 
 
 def grid_normalize(
@@ -52,7 +70,9 @@ def grid_normalize(
     cell_area: float,
 ) -> tuple[Float[Tensor, "..."], Float[Tensor, "..."], Float[Tensor, ""]]:
     """
-    Normalize an unnormalized log-density evaluated on a regular grid.
+    TOY / LOW-DIM (2D) ONLY. Normalize an unnormalized log-density evaluated on a regular grid.
+    Normalizes by summing exp(log q) over an enumerated regular grid -
+    only exists in the toy setting, used on the output of `tilted_log_density`.    
 
     Args:
         log_q_unnorm: (G,) or (gn, gn) tensor of log q (unnormalized)
@@ -65,7 +85,7 @@ def grid_normalize(
     """
     shape = log_q_unnorm.shape
     flat = log_q_unnorm.reshape(-1)
-    flat = flat - flat[~flat.isnan()].max()      # max-stabilize for exp()
+    flat = flat - flat[~flat.isnan()].max()
     q_un = flat.exp()
     Z = q_un.sum() * cell_area
     q = (q_un / Z).reshape(shape)

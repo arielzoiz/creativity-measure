@@ -2,11 +2,10 @@
 # A selector chooses R reference points x'_1..x'_R (from a Density p) used to estimate the tilt reward
 #     f(x) = E_{x'~p}[ D_IEM(x, x') ]   ≈   sum_m w_m D_IEM(x, x'_m) / sum_m w_m.
 # Unbiased for E_{x'~p}[.] iff refs ~ p with uniform weights (RandomRefs) or reweighted by inverse
-# selection density (inverse-density-weighted FPS -- not implemented). Plain coverage selection
-# (FPSRefs) is biased (mode-balanced).
+# selection density (inverse-density-weighted FPS). Plain coverage selection (FPSRefs) is biased (mode-balanced).
 #
-# R may be omitted in select(): the selector then auto-chooses R by a weighted-τ LEVEL target (rank
-# stability of f over probes ~ p). Auto-R needs a `distance` (to compute f) and internally-sampled probes.
+# R may be omitted in select(): the selector then auto-chooses R by a weighted-τ LEVEL target (rank stability of f over probes ~ p).
+# Auto-R needs a `distance` (to compute f) and internally-sampled probes.
 from abc import ABC, abstractmethod
 from typing import cast
 
@@ -16,6 +15,7 @@ from torch import Tensor
 
 from creativity_measure._types import SampleableDensity
 from creativity_measure.distances.base import Distance
+from creativity_measure.tilt import Reward
 
 try:
     from scipy.stats import weightedtau           # only needed for auto-R
@@ -30,22 +30,18 @@ class RefSelector(ABC):
     Construction:
         p:          sampler/density with .sample(n, seed=...) -> (n, d).
         distance:   a Distance with .pairwise(X, Y) -> (|X|, |Y|) IEM distances.
-                    Required for FPS-style selection, for auto-R (R omitted), and for expected_distance().
-                    The SAME distance both selects and scores references, so f is internally consistent.
         seed:       RNG seed for reference / pool draws.
 
     Auto-R controls (used only when select() is called without R):
-        auto_r_grid:  candidate R values (doubling ladder) for the τ sweep.
-        tau_target:   accept the smallest R whose weighted-τ(f_R, f_2R) >= this. τ is a unitless rank
-                      correlation, so the bar transfers across dimensions; in high d, calibrate it to the
-                      curve's achievable ceiling rather than assuming a fixed value is reachable. Inspect
-                      `tau_history` after an auto-R call to see that ceiling.
-        probe_size:   number of probes ~ p for the τ test (disjoint from references).
-        auto_r_draws: draws to average over per R for STOCHASTIC selectors (deterministic ones loop once;
-                      see _auto_r_effective_draws).
-        fallback:     what to do if no R reaches tau_target. "raise" (default) errors -- right for a
-                      notebook; "best" returns the SMALLEST R achieving the max observed τ (ties toward
-                      fewer refs), so an auto-R call inside a sampler loop degrades instead of aborting.
+        auto_r_grid: candidate R values (doubling ladder) for the τ sweep.
+        tau_target: accept the smallest R whose weighted-τ(f_R, f_2R) >= this. τ is a unitless rank correlation, so the
+                    bar transfers across dimensions; in high d, calibrate it to the curve's achievable ceiling rather than
+                    assuming a fixed value is reachable. Inspect `tau_history` after an auto-R call to see that ceiling.
+        probe_size: number of probes ~ p for the τ test (disjoint from references).
+        auto_r_draws: draws to average over per R for STOCHASTIC selectors (deterministic ones loop once; see _auto_r_effective_draws).
+        fallback:   what to do if no R reaches tau_target. "raise" (default) errors - right for a demo;
+                    "best" returns the SMALLEST R achieving the max observed τ (ties toward fewer refs),
+                    so an auto-R call inside a sampler loop degrades instead of aborting.
     """
 
     def __init__(
@@ -95,8 +91,7 @@ class RefSelector(ABC):
         """
         Reduce a (K, n) distance block to f over the K rows. Default = plain mean (uniform weights).
         WEIGHTED selectors override to apply per-reference weights. `n`/`draw` let weighted selectors fetch
-        the matching weights for this prefix/draw. Used by BOTH the auto-R sweep and expected_distance(),
-        so the reduction is identical everywhere f is computed.
+        the matching weights for this prefix/draw.
         """
         return pw.mean(dim=1)
     
@@ -138,21 +133,29 @@ class RefSelector(ABC):
 
     @property
     def tau_history(self) -> list[tuple[int, float]]:
-        """(R, mean-τ) for each R swept in the last auto-R call. Use it to read off the achievable τ
-        ceiling and calibrate tau_target (esp. in high d). Empty until select(R=None) runs."""
+        """(R, mean-τ) for each R swept in the last auto-R call. Use to read off the achievable τ
+        ceiling and calibrate tau_target. Empty until select(R=None) runs."""
         return self._tau_history
 
-    def expected_distance(self, X: Float[Tensor, "B d"], R: int | None = None) -> Float[Tensor, "B"]:
-        """
-        f(X) = sum_m w_m D_IEM(X, x'_m) / sum_m w_m, the (possibly weighted) estimate of E_{x'~p}[D_IEM].
-        Selects references (auto-R if R is None) and scores them with the selector's own `distance`,
-        reduced via _f_from_pairwise (so uniform/weighted reduction matches the auto-R sweep exactly).
+    def reward(self, R: int | None = None) -> Reward:
+        """Frozen `Reward` bundling this selector's distance, selected refs, and weights.
+
+        Selects references (auto-R if R is None, caching refs + weights) and snapshots them into a Reward whose f
+        matches the selector's own reduction (uniform for RandomRefs, frozen Voronoi weights for WeightedFPSRefs).
+        Passed to `smc.smc_sample` and `tilt.tilted_log_density`.
         """
         if self.distance is None:
             raise ValueError("needs a `distance`; pass distance= at construction.")
         refs = self.select(R)
-        pw = self.distance.pairwise(X, refs)                       # (B, R)
-        return self._f_from_pairwise(pw, refs.shape[0], draw=0)
+        return Reward(self.distance, refs, self.weights)
+
+    def expected_distance(self, X: Float[Tensor, "B d"], R: int | None = None) -> Float[Tensor, "B"]:
+        """
+        f(X) = sum_m w_m D_IEM(X, x'_m) / sum_m w_m, the (possibly weighted) estimate of E_{x'~p}[D_IEM].
+        Selects references (auto-R if R is None) and scores them via the frozen `reward`, so the
+        deployed reduction is the single one used everywhere f is computed.
+        """
+        return self.reward(R)(X)
 
     # ---- shared auto-R: weighted-τ level target on nested R-vs-2R --------------------------------
 
@@ -171,8 +174,6 @@ class RefSelector(ABC):
         max_r = grid[-1]
 
         # Amortize: compute one (probes x 2*max_r) distance block PER DRAW, then every R is a column-slice.
-        # This is the key cost fix -- the sweep does n_draws * (probes x 2*max_r) IEM evals TOTAL, not
-        # n_draws * probes * Σ(2R) (which recomputed the matrix at every R).
         blocks = [self._tau_block(probes, max_r, d) for d in range(n_draws)]   # list of (K, 2*max_r)
 
         self._tau_history = []
@@ -194,8 +195,8 @@ class RefSelector(ABC):
 
     def _tau_block(self, probes: Float[Tensor, "K d"], max_r: int, draw: int) -> Float[Tensor, "K twoMaxR"]:
         """
-        Compute the (probes x 2*max_r) distance block for one draw, ONCE. The auto-R sweep slices its
-        columns for every R, so pairwise() runs n_draws times total -- not once per (R, draw).
+        Compute the (probes x 2*max_r) distance block for one draw, ONCE. The auto-R sweep slices its columns for every R,
+        so pairwise() runs n_draws times total - not once per (R, draw).
         References are the first 2*max_r of this draw's reference set (a prefix for deterministic selectors,
         a fresh i.i.d. draw for stochastic ones), so columns [:2R] are exactly the size-2R reference set.
         """
@@ -205,10 +206,10 @@ class RefSelector(ABC):
 
     def _tau_from_block(self, block: Float[Tensor, "K twoMaxR"], R: int, draw: int) -> float:
         """
-        One weighted-τ(f_R, f_2R) by SLICING the precomputed block -- no new IEM evals.
+        One weighted-τ(f_R, f_2R) by SLICING the precomputed block - no new IEM evals.
         NOTE (nesting bias): the 2R column-set is a SUPERSET of the R set, so f_R and f_2R share R terms
-        and τ is biased optimistic -> chosen R may be smaller than an independent test would give. Nesting
-        is intrinsic for deterministic FPS. Weighted selectors override to de-correlate weight noise.
+        and τ is biased optimistic -> chosen R may be smaller than an independent test would give.
+        Nesting is intrinsic for deterministic FPS. Weighted selectors override to de-correlate weight noise.
         """
         assert weightedtau is not None
         fR = self._f_from_pairwise(block[:, :R], R, draw)

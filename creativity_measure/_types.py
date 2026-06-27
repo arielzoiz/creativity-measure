@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from jaxtyping import Float
 from torch import Tensor
@@ -10,6 +10,7 @@ ScoreFn = Callable[[Float[Tensor, "B d"], Float[Tensor, ""]], Float[Tensor, "B d
 Sampler = Callable[[int], Float[Tensor, "n d"]]
 
 
+@runtime_checkable
 class SampleableDensity(Protocol):
     """
     Structural contract for a sampleable normalized density.
