@@ -1,5 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+import torch
 from jaxtyping import Float
 from torch import Tensor
 
@@ -45,6 +46,52 @@ class Reward:
 
     def __call__(self, X: Float[Tensor, "B d"]) -> Float[Tensor, "B"]:
         return expected_distance(self.distance, X, self.x_refs, weights=self.weights)
+
+
+def reference_pair_mean(
+    distance: Distance,
+    x_refs: Float[Tensor, "R d"],
+    weights: Float[Tensor, "R"] | None = None,
+) -> Float[Tensor, ""]:
+    """E_{x',x''~p}[ D(x', x'') ] estimated over the OFF-DIAGONAL pairs of the frozen refs.
+
+    Reuses the reference set as the pair sample (no extra draws). With a squared distance injected
+    (SquaredGlobalIEMDistance) this is E[D_IEM^2]. Off-diagonal only (the r==r self-pairs, D=0, are dropped
+    so they don't bias the mean down). weights: per-reference
+    weights (None => uniform, plain off-diagonal mean); applied on BOTH indices for weighted selectors.
+    """
+    R = x_refs.shape[0]
+    if R < 2:
+        raise ValueError(f"reference_pair_mean needs >= 2 references, got {R}")
+    M = distance.pairwise(x_refs, x_refs)                     # (R, R); D^2 when distance is squared
+    eye = torch.eye(R, dtype=torch.bool, device=M.device)
+    if weights is None:
+        return M[~eye].mean()
+    w = weights.to(M)                                         # match dtype/device
+    W2 = (w[:, None] * w[None, :]).masked_fill(eye, 0)        # zero the diagonal pair-weights
+    return (M * W2).sum() / W2.sum()
+
+
+@dataclass(frozen=True)
+class NormalizedExpectedDistanceReward(Reward):
+    """The normalized tilt reward  f(X) = E_{x'~p}[D(X, x')] / E_{x',x''~p}[D(x', x'')].
+
+    Same (distance, x_refs, weights) bundle as `Reward`; only the reduction differs: the expected
+    distance is divided by the scalar constant `reference_pair_mean(distance, x_refs, weights)`.
+    With `SquaredGlobalIEMDistance` injected this is the squared-IEM reward. The denominator
+    reuses the frozen refs and is computed ONCE (cached in __post_init__; base is frozen so we set
+    it via object.__setattr__), keeping f deterministic as the SMC/MCMC theory assumes.
+    """
+
+    _denom: float = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        denom = float(reference_pair_mean(self.distance, self.x_refs, self.weights))
+        object.__setattr__(self, "_denom", denom)
+
+    def __call__(self, X: Float[Tensor, "B d"]) -> Float[Tensor, "B"]:
+        num = expected_distance(self.distance, X, self.x_refs, weights=self.weights)
+        return num / self._denom
 
 
 def tilted_log_density(

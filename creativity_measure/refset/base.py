@@ -15,7 +15,7 @@ from torch import Tensor
 
 from creativity_measure._types import SampleableDensity
 from creativity_measure.distances.base import Distance
-from creativity_measure.tilt import Reward
+from creativity_measure.tilt import NormalizedExpectedDistanceReward, Reward
 
 try:
     from scipy.stats import weightedtau           # only needed for auto-R
@@ -148,6 +148,19 @@ class RefSelector(ABC):
             raise ValueError("needs a `distance`; pass distance= at construction.")
         refs = self.select(R)
         return Reward(self.distance, refs, self.weights)
+
+    def normalized_reward(self, R: int | None = None) -> NormalizedExpectedDistanceReward:
+        """Frozen `NormalizedExpectedDistanceReward` for this selector's distance, refs, and weights.
+
+        Same as `reward()` but the tilt reward is the normalized expected distance
+        f(x) = E_{x'~p}[D(x,x')] / E_{x',x''~p}[D(x',x'')]. Inject a squared distance
+        (SquaredGlobalIEMDistance) for the squared-IEM reward. Generic across selectors
+        (RandomRefs, WeightedFPSRefs, ...) since it only reuses the selected refs + weights.
+        """
+        if self.distance is None:
+            raise ValueError("needs a `distance`; pass distance= at construction.")
+        refs = self.select(R)
+        return NormalizedExpectedDistanceReward(self.distance, refs, self.weights)
 
     def expected_distance(self, X: Float[Tensor, "B d"], R: int | None = None) -> Float[Tensor, "B"]:
         """

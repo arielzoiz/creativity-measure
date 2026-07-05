@@ -102,7 +102,29 @@ class GlobalIEMDistance(Distance):
             increments = iem_sq_increments_one_to_many(
                 x_refs[ref:ref+1], X, W, gammas, self.density, self.score_fn)
             iem_sq = increments.sum(0)                      # (N_eps, G): ∫dg  -> IEM^2 per path
-            cols.append(iem_sq.mean(0).clamp_min(0).sqrt()) # (B,): E_W -> sqrt -> D_IEM
+            iem_sq_mean = iem_sq.mean(0).clamp_min(0)       # (B,): E_W[IEM^2]
+            cols.append(self._finalize_col(iem_sq_mean))    # (B,): -> D_IEM (or D_IEM^2 in subclass)
             if self.verbose and (ref + 1) % max(1, num_refs // 4) == 0:
                 print(f'  ref {ref+1}/{num_refs}')
         return torch.stack(cols, dim=1)                     # (B, num_refs)
+
+    def _finalize_col(
+        self, iem_sq_mean: Float[Tensor, "B"]
+    ) -> Float[Tensor, "B"]:
+        """Map E_W[IEM^2] -> the reported per-reference column. Default: sqrt -> D_IEM.
+        Overridden by SquaredGlobalIEMDistance to return D_IEM^2 (skip the sqrt)."""
+        return iem_sq_mean.sqrt()
+
+
+class SquaredGlobalIEMDistance(GlobalIEMDistance):
+    """Global IEM squared distance D_IEM^2(x, x') = the pre-sqrt integral E_W[IEM^2].
+
+    Same __init__/pairwise as GlobalIEMDistance; only the final reduction differs (no sqrt), so
+    `pairwise` returns D_IEM^2 directly. Injectable into any RefSelector to build the squared-distance
+    tilt reward (see NormalizedExpectedDistanceReward in tilt.py).
+    """
+
+    def _finalize_col(
+        self, iem_sq_mean: Float[Tensor, "B"]
+    ) -> Float[Tensor, "B"]:
+        return iem_sq_mean  # D_IEM^2
