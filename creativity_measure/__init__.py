@@ -18,6 +18,9 @@ from creativity_measure.smc import (
     smc_sample, SMCResult, Kernel, IndependenceKernel, PCNKernel,
     RejuvenationStop, MAX_N_MCMC, MIN_N_MCMC
 )
-from creativity_measure.generator import (
+from creativity_measure.generators import (
     heun_prob_flow, density_denoiser, density_generator, edm_generator,
+    eps_to_edm_denoiser,
+    build_edm_pixel_generator, build_edm_pixel_generator_from_pkl,
+    build_tiny_sd_generator, build_flux_generator,
 )

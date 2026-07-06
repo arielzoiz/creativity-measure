@@ -80,6 +80,11 @@ EXPECTED_NAMES = [
     "density_denoiser",
     "density_generator",
     "edm_generator",
+    "eps_to_edm_denoiser",
+    "build_edm_pixel_generator",
+    "build_edm_pixel_generator_from_pkl",
+    "build_tiny_sd_generator",
+    "build_flux_generator",
 ]
 
 

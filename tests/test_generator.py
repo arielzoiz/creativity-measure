@@ -1,4 +1,4 @@
-"""Tests for the deterministic EDM prob-flow generator (creativity_measure/generator.py)."""
+"""Tests for the deterministic EDM prob-flow generator (creativity_measure/generators/)."""
 
 import math
 

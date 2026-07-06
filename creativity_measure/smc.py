@@ -6,7 +6,7 @@ Dimension-agnostic SMC with a **pluggable rejuvenation kernel**:
     base density cancels in the acceptance ratio (no ``log p``, no gradients). Efficient when ``q ≈ p``.
 * `PCNKernel` — a *local*, prior-preserving move in the diffusion model's latent Gaussian
     space. Carries each particle as a latent ``z`` with ``x = G(z)`` (deterministic EDM prob-flow ODE, see
-    ``creativity_measure/generator.py``); a pCN proposal ``z' = sqrt(1-s^2) z + s·xi`` is reversible w.r.t. ``N(0,I)``,
+    ``creativity_measure/generators/``); a pCN proposal ``z' = sqrt(1-s^2) z + s·xi`` is reversible w.r.t. ``N(0,I)``,
     so the Gaussian prior cancels and acceptance is ``min(1, exp[beta·lambda·(f(G(z'))-f(G(z)))])``.
     Mixes well when ``q`` is pushed off the data manifold (higher ``lambda``), where independence-MH collapses.
 
@@ -250,7 +250,7 @@ class PCNKernel(Kernel):
 
     Args:
         generator_fn: deterministic map ``G: (N, latent_dim) -> (N, d)`` with ``G(N(0,I)) ~ p``
-                      (``generator.density_generator`` for 2D toy example, ``generator.edm_generator`` for pixel / latent space).
+                      (``generators.density_generator`` for 2D toy example, ``generators.edm_generator`` / ``build_edm_pixel_generator`` for pixel / latent space).
         latent_dim:   flat latent dimensionality.
         s0:           initial pCN step size in (0, 1); only the warm-up, the step then adapts.
         target_acc:   acceptance the step size adapts toward; ~0.23 is the high-d optimum.
