@@ -50,6 +50,11 @@ class SMCResult:
         betas:      adaptive temperature schedule actually used (one entry per level).
         ess_history: ESS at each level (post-reweight, pre-resample).
         acc_history: mean rejuvenation acceptance rate at each level.
+        n_mcmc_history: number of rejuvenation sweeps actually run at each level (constant in
+                    fixed-``n_mcmc`` mode; adaptive per level otherwise).
+        stop_reason_history: why rejuvenation stopped at each level — ``"decorr"`` (primary
+                    decorrelation threshold), ``"plateau"`` (``f`` early-exit), ``"cap"`` (hit
+                    ``max_n_mcmc``), or ``"fixed"`` (non-adaptive ``n_mcmc`` path).
     """
 
     X: Float[Tensor, "N d"]
@@ -57,6 +62,8 @@ class SMCResult:
     betas: list[float]
     ess_history: list[float]
     acc_history: list[float]
+    n_mcmc_history: list[int]
+    stop_reason_history: list[str]
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -114,6 +121,33 @@ def _next_dbeta(
     return lo
 
 
+MAX_N_MCMC: int = 30
+MIN_N_MCMC: int = 2
+
+@dataclass(frozen=True)
+class RejuvenationStop:
+    """Stopping policy for adaptive-length rejuvenation (used when ``smc_sample(n_mcmc=None)``).
+
+    Each tempering level keeps applying π_β-invariant sweeps until the resampled duplicates have
+    **decorrelated** — measured by the kernel's own geometry-aware ``decorrelation`` (primary) — or the
+    weight-aware ensemble statistics of ``f`` stop moving (``f``-plateau, secondary early-exit), subject
+    to a ``min_n_mcmc`` floor and the ``max_n_mcmc`` cap.
+
+    Attributes:
+        min_n_mcmc:      always run at least this many sweeps before any early stop.
+        max_n_mcmc:      hard cap on sweeps per level.
+        decorr_threshold: stop once ``kernel.decorrelation`` (1=still correlated, 0=decorrelated) < this.
+        f_plateau_rtol:  relative-change tolerance on the weight-aware mean/std of ``f``.
+        patience:        number of consecutive plateau sweeps required for the ``f``-plateau early-exit.
+    """
+
+    min_n_mcmc: int = MIN_N_MCMC
+    max_n_mcmc: int = MAX_N_MCMC
+    decorr_threshold: float = 0.2
+    f_plateau_rtol: float = 1e-2
+    patience: int = 2
+
+
 # ---------------------------------------------------------------------------------------------------
 # Pluggable rejuvenation kernels
 # ---------------------------------------------------------------------------------------------------
@@ -145,11 +179,30 @@ class Kernel(ABC):
         """Reindex X and any aux state on resampling (the loop reindexes logw)."""
 
     @abstractmethod
+    def step(
+        self, state: _State, *,
+        beta: float, lam: float, f: RewardFn, generator: torch.Generator,
+    ) -> float:
+        """Apply **one** π_β-invariant move in place; return that sweep's mean acceptance rate."""
+
+    @abstractmethod
+    def snapshot_baseline(self, state: _State) -> dict[str, Tensor]:
+        """Clone the state that `decorrelation` compares against (the post-resample positions)."""
+
+    @abstractmethod
+    def decorrelation(self, state: _State, baseline: dict[str, Tensor]) -> float:
+        """Scalar in ``[0, 1]``: 1 = still fully correlated with ``baseline``, 0 = fully decorrelated."""
+
     def rejuvenate(
         self, state: _State, *,
         beta: float, lam: float, f: RewardFn, n_mcmc: int, generator: torch.Generator,
     ) -> float:
         """Apply ``n_mcmc`` π_β-invariant moves in place; return the mean acceptance rate."""
+        accs = [
+            self.step(state, beta=beta, lam=lam, f=f, generator=generator)
+            for _ in range(n_mcmc)
+        ]
+        return sum(accs) / len(accs) if accs else 0.0
 
 
 class IndependenceKernel(Kernel):
@@ -168,19 +221,25 @@ class IndependenceKernel(Kernel):
         state.X = state.X[idx]
         state.fX = state.fX[idx]
 
-    def rejuvenate(self, state, *, beta, lam, f, n_mcmc, generator):
+    def step(self, state, *, beta, lam, f, generator):
         n = state.X.shape[0]
-        accs: list[float] = []
-        for _ in range(n_mcmc):
-            Xp = self.p.sample(n, generator=generator)
-            fXp = f(Xp)
-            log_a = (beta * lam) * (fXp - state.fX)
-            u = torch.rand(n, generator=generator, device=state.X.device, dtype=state.X.dtype)
-            acc = u < torch.exp(log_a.clamp_max(0.0))
-            state.X = torch.where(acc.unsqueeze(-1), Xp, state.X)
-            state.fX = torch.where(acc, fXp, state.fX)
-            accs.append(float(acc.to(state.fX.dtype).mean()))
-        return sum(accs) / len(accs) if accs else 0.0
+        Xp = self.p.sample(n, generator=generator)
+        fXp = f(Xp)
+        log_a = (beta * lam) * (fXp - state.fX)
+        u = torch.rand(n, generator=generator, device=state.X.device, dtype=state.X.dtype)
+        acc = u < torch.exp(log_a.clamp_max(0.0))
+        state.X = torch.where(acc.unsqueeze(-1), Xp, state.X)
+        state.fX = torch.where(acc, fXp, state.fX)
+        return float(acc.to(state.fX.dtype).mean())
+
+    def snapshot_baseline(self, state):
+        return {"X": state.X.clone()}
+
+    def decorrelation(self, state, baseline):
+        # Global proposals: one accepted x'~p fully replaces the state, so the exact decorrelation signal
+        # is the fraction of particles still identical to their resampled parent (rejected -> bitwise equal).
+        moved = (state.X != baseline["X"]).flatten(1).any(dim=1)
+        return float((~moved).to(state.fX.dtype).mean())
 
 
 class PCNKernel(Kernel):
@@ -228,34 +287,94 @@ class PCNKernel(Kernel):
         state.fX = state.fX[idx]
         state.aux["Z"] = state.aux["Z"][idx]
 
-    def rejuvenate(self, state, *, beta, lam, f, n_mcmc, generator):
+    def step(self, state, *, beta, lam, f, generator):
         Z = state.aux["Z"]
         n = Z.shape[0]
-        accs: list[float] = []
-        for _ in range(n_mcmc):
-            xi = torch.randn(Z.shape, generator=generator, device=Z.device, dtype=Z.dtype)
-            Zp = math.sqrt(1.0 - self.s * self.s) * Z + self.s * xi
-            Xp = self.G(Zp)
-            fXp = f(Xp)
-            log_a = (beta * lam) * (fXp - state.fX)
-            u = torch.rand(n, generator=generator, device=Z.device, dtype=Z.dtype)
-            acc = u < torch.exp(log_a.clamp_max(0.0))
-            am = acc.unsqueeze(-1)
-            Z = torch.where(am, Zp, Z)
-            state.X = torch.where(am, Xp, state.X)
-            state.fX = torch.where(acc, fXp, state.fX)
-            acc_rate = float(acc.to(state.fX.dtype).mean())
-            accs.append(acc_rate)
-            # Robbins-Monro: nudge log-step toward the target acceptance, clamp s in (1e-3, 0.999).
-            new_log_s = math.log(self.s) + self.adapt_rate * (acc_rate - self.target_acc)
-            self.s = min(0.999, max(1e-3, math.exp(new_log_s)))
-        state.aux["Z"] = Z
-        return sum(accs) / len(accs) if accs else 0.0
+        xi = torch.randn(Z.shape, generator=generator, device=Z.device, dtype=Z.dtype)
+        Zp = math.sqrt(1.0 - self.s * self.s) * Z + self.s * xi
+        Xp = self.G(Zp)
+        fXp = f(Xp)
+        log_a = (beta * lam) * (fXp - state.fX)
+        u = torch.rand(n, generator=generator, device=Z.device, dtype=Z.dtype)
+        acc = u < torch.exp(log_a.clamp_max(0.0))
+        am = acc.unsqueeze(-1)
+        state.aux["Z"] = torch.where(am, Zp, Z)
+        state.X = torch.where(am, Xp, state.X)
+        state.fX = torch.where(acc, fXp, state.fX)
+        acc_rate = float(acc.to(state.fX.dtype).mean())
+        # Robbins-Monro: nudge log-step toward the target acceptance, clamp s in (1e-3, 0.999).
+        new_log_s = math.log(self.s) + self.adapt_rate * (acc_rate - self.target_acc)
+        self.s = min(0.999, max(1e-3, math.exp(new_log_s)))
+        return acc_rate
+
+    def snapshot_baseline(self, state):
+        return {"Z": state.aux["Z"].clone()}
+
+    def decorrelation(self, state, baseline):
+        # Local moves accumulate: measure how far the latent z has drifted from its post-resample value
+        # via a **dimension-robust** normalized ESJD, 1 - E‖z_t-z_0‖² / (E‖z_0‖² + E‖z_t‖²). This is 1 at
+        # the baseline and -> 0 at independence in ANY dimension (the cross term vanishes regardless of d),
+        # so one threshold transfers across latent sizes — unlike |cos|, whose floor grows as d shrinks.
+        # Latent space is cheap and low-dim vs. pixels.
+        z0 = baseline["Z"].flatten(1)
+        zt = state.aux["Z"].flatten(1)
+        num = (zt - z0).square().sum()
+        den = z0.square().sum() + zt.square().sum() + 1e-12
+        return float((1.0 - num / den).clamp(0.0, 1.0))
 
 
 # ---------------------------------------------------------------------------------------------------
 # Shared SMC loop
 # ---------------------------------------------------------------------------------------------------
+
+def _weighted_mean_std(fX: Tensor, logw: Tensor) -> tuple[float, float]:
+    """Weight-aware (softmax(logw)) mean and std of the reward ``fX`` across the ensemble."""
+    w = torch.softmax(logw, dim=0)
+    m = (w * fX).sum()
+    v = (w * (fX - m).square()).sum().clamp_min(0.0)
+    return float(m), math.sqrt(float(v))
+
+
+def _rejuvenate_adaptive(
+    kernel: Kernel,
+    state: _State,
+    *,
+    beta: float,
+    lam: float,
+    f: RewardFn,
+    generator: torch.Generator,
+    stop: RejuvenationStop,
+) -> tuple[float, int, str]:
+    """Sweep until the duplicates decorrelate (or ``f`` plateaus); return (mean_acc, n_sweeps, reason).
+
+    Primary stop (``reason="decorr"``): ``kernel.decorrelation`` < ``decorr_threshold`` (geometry-aware).
+    Secondary early-exit (``reason="plateau"``): weight-aware mean/std of ``f`` change < ``f_plateau_rtol``
+    for ``patience`` consecutive sweeps. If neither fires within ``max_n_mcmc`` sweeps, ``reason="cap"``.
+    Both early stops are gated by the ``min_n_mcmc`` floor.
+    """
+    baseline = kernel.snapshot_baseline(state)
+    accs: list[float] = []
+    plateau_count = 0
+    prev: tuple[float, float] | None = None
+    reason = "cap"
+    for t in range(stop.max_n_mcmc):
+        accs.append(kernel.step(state, beta=beta, lam=lam, f=f, generator=generator))
+        if t < stop.min_n_mcmc - 1:
+            continue
+        if kernel.decorrelation(state, baseline) < stop.decorr_threshold:
+            reason = "decorr"
+            break
+        m, s = _weighted_mean_std(state.fX, state.logw)
+        if prev is not None:
+            dm = abs(m - prev[0]) / (abs(prev[0]) + 1e-12)
+            ds = abs(s - prev[1]) / (prev[1] + 1e-12)
+            plateau_count = plateau_count + 1 if (dm < stop.f_plateau_rtol and ds < stop.f_plateau_rtol) else 0
+            if plateau_count >= stop.patience:
+                reason = "plateau"
+                break
+        prev = (m, s)
+    return (sum(accs) / len(accs) if accs else 0.0), len(accs), reason
+
 
 def _run_smc(
     kernel: Kernel,
@@ -264,7 +383,8 @@ def _run_smc(
     n_particles: int,
     *,
     ess_target: float,
-    n_mcmc: int,
+    n_mcmc: int | None,
+    stop: RejuvenationStop,
     final_resample: bool,
     generator: torch.Generator,
     device: torch.device,
@@ -277,6 +397,8 @@ def _run_smc(
     betas: list[float] = []
     ess_history: list[float] = []
     acc_history: list[float] = []
+    n_mcmc_history: list[int] = []
+    stop_reason_history: list[str] = []
 
     while beta < 1.0:
         # (a) adaptive temperature
@@ -296,10 +418,17 @@ def _run_smc(
             kernel.reorder(state, idx)
             state.logw = torch.zeros_like(state.logw)
 
-        # (d) rejuvenate with the chosen kernel (invariant to π_β)
-        acc_history.append(
-            kernel.rejuvenate(state, beta=beta, lam=lam, f=f, n_mcmc=n_mcmc, generator=generator)
-        )
+        # (d) rejuvenate with the chosen kernel (invariant to π_β); adaptive length unless n_mcmc is fixed
+        if n_mcmc is None:
+            acc, n_used, reason = _rejuvenate_adaptive(
+                kernel, state, beta=beta, lam=lam, f=f, generator=generator, stop=stop
+            )
+        else:
+            acc = kernel.rejuvenate(state, beta=beta, lam=lam, f=f, n_mcmc=n_mcmc, generator=generator)
+            n_used, reason = n_mcmc, "fixed"
+        acc_history.append(acc)
+        n_mcmc_history.append(n_used)
+        stop_reason_history.append(reason)
 
         if final_level:
             break
@@ -315,6 +444,8 @@ def _run_smc(
         betas=betas,
         ess_history=ess_history,
         acc_history=acc_history,
+        n_mcmc_history=n_mcmc_history,
+        stop_reason_history=stop_reason_history,
     )
 
 
@@ -326,6 +457,7 @@ def smc_sample(
     kernel: Kernel,
     ess_target: float | None = None,
     n_mcmc: int | None = None,
+    stop: RejuvenationStop | None = None,
     final_resample: bool = False,
     seed: int | None = None,
 ) -> SMCResult:
@@ -343,7 +475,10 @@ def smc_sample(
     ``kernel`` - `PCNKernel` for strong / off-manifold tilts;
                     `IndependenceKernel`(p) is fine when ``q ≈ p`` (mild tilt). The base density ``p`` lives in `IndependenceKernel`.
     ``n_particles``— as large as compute allows; check ``SMCResult.ess_history[-1]`` is adequate.
-    ``ess_target`` / ``n_mcmc`` — Tune via the ESS- and acceptance-vs-β histories.
+    ``ess_target`` / ``n_mcmc`` — Tune via the ESS- and acceptance-vs-β histories. Leaving ``n_mcmc=None``
+                    runs **adaptive** rejuvenation: each level sweeps until the resampled duplicates
+                    decorrelate (per-kernel metric) or ``f`` plateaus, bounded by ``MAX_N_MCMC``; inspect
+                    ``SMCResult.n_mcmc_history`` for the per-level effort.
 
     Args:
         reward:       frozen reward ``f`` (distance, references, weights); its ``x_refs`` also fixes the run's device/dtype.
@@ -353,7 +488,10 @@ def smc_sample(
         ess_target:   target ESS as a fraction of ``N`` (tempering target + resampling threshold).
                       ``None`` => the kernel's default (Independence 0.5; pCN 0.7). Raise toward 0.9
                       for strong tilts — the dominant recovery lever.
-        n_mcmc:       rejuvenation moves per level. ``None`` => kernel default (Independence 3; pCN 4).
+        n_mcmc:       rejuvenation moves per level. ``None`` (default) => **adaptive** length per level
+                      (see ``stop``); pass an ``int`` to force a fixed number of sweeps (legacy behavior).
+        stop:         `RejuvenationStop` policy for the adaptive path (min/max sweeps, decorrelation
+                      threshold, ``f``-plateau tolerance). ``None`` => defaults. Ignored when ``n_mcmc`` is an int.
         final_resample: if ``True``, resample once at the end so the returned particles are equal-weight.
         seed:         seeds the single internal ``torch.Generator`` that drives every kernel (no global RNG).
 
@@ -363,8 +501,8 @@ def smc_sample(
 
     if ess_target is None:
         ess_target = kernel.default_ess_target
-    if n_mcmc is None:
-        n_mcmc = kernel.default_n_mcmc
+    if stop is None:
+        stop = RejuvenationStop()
 
     gen = torch.Generator(device=x_refs.device)
     if seed is not None:
@@ -372,6 +510,6 @@ def smc_sample(
 
     return _run_smc(
         kernel, reward, lam, n_particles,
-        ess_target=ess_target, n_mcmc=n_mcmc, final_resample=final_resample,
+        ess_target=ess_target, n_mcmc=n_mcmc, stop=stop, final_resample=final_resample,
         generator=gen, device=x_refs.device, dtype=x_refs.dtype,
     )

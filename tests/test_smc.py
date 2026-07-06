@@ -27,6 +27,8 @@ from creativity_measure.smc import (
     _ess_from_logw,
     _systematic_resample,
     _next_dbeta,
+    RejuvenationStop,
+    MAX_N_MCMC,
 )
 from creativity_measure.refset import RandomRefs, WeightedFPSRefs
 
@@ -195,6 +197,57 @@ def test_multi_level_schedule_terminates():
     assert res.betas[-1] == pytest.approx(1.0)
     assert all(0.0 < b <= 1.0 + 1e-9 for b in res.betas)
     assert res.X.isfinite().all()
+
+
+def test_adaptive_matches_fixed_when_capped():
+    """Refactor guard: adaptive with min=max=k reduces to fixed n_mcmc=k, bit-for-bit.
+
+    Proves the step()/snapshot/decorrelation split did not perturb the RNG threading.
+    """
+    p, _ = _ring_density()
+    D = LpDistance(2.0)
+    reward = RandomRefs(p, distance=D, seed=0).reward(6)
+    k = 3
+    a = smc_sample(reward, lam=3.0, n_particles=500, kernel=IndependenceKernel(p),
+                   n_mcmc=None, stop=RejuvenationStop(min_n_mcmc=k, max_n_mcmc=k), seed=0)
+    b = smc_sample(reward, lam=3.0, n_particles=500, kernel=IndependenceKernel(p),
+                   n_mcmc=k, seed=0)
+    assert torch.equal(a.X, b.X)
+    assert torch.equal(a.logw, b.logw)
+    assert a.n_mcmc_history == b.n_mcmc_history == [k] * len(a.betas)
+
+
+def test_adaptive_rejuvenation_records_bounded_effort():
+    """n_mcmc=None runs adaptive per level: one entry per β, each within [min_n_mcmc, MAX_N_MCMC]."""
+    p, _ = _ring_density()
+    D = LpDistance(2.0)
+    pool = p.sample(400, seed=0)
+    refs = pool[pool[:, 0] > 1.5][:40]           # clustered refs -> multi-level schedule
+    stop = RejuvenationStop()
+    res = smc_sample(Reward(D, refs), lam=6.0, n_particles=1500,
+                     kernel=IndependenceKernel(p), n_mcmc=None, stop=stop, seed=0)
+    assert len(res.n_mcmc_history) == len(res.betas)
+    assert all(stop.min_n_mcmc <= n <= MAX_N_MCMC for n in res.n_mcmc_history)
+    assert res.X.isfinite().all()
+    # determinism of the adaptive path (schedule + particles)
+    res2 = smc_sample(Reward(D, refs), lam=6.0, n_particles=1500,
+                      kernel=IndependenceKernel(p), n_mcmc=None, stop=stop, seed=0)
+    assert torch.equal(res.X, res2.X)
+    assert res.n_mcmc_history == res2.n_mcmc_history
+
+
+def test_independence_decorrelation_metric():
+    """decorrelation() == 1 before any accept (all particles at their parent), drops after a step."""
+    p, _ = _ring_density()
+    D = LpDistance(2.0)
+    reward = RandomRefs(p, distance=D, seed=0).reward(6)
+    ker = IndependenceKernel(p)
+    gen = torch.Generator().manual_seed(0)
+    state = ker.init(500, reward, generator=gen, device=torch.device("cpu"), dtype=dtype)
+    base = ker.snapshot_baseline(state)
+    assert ker.decorrelation(state, base) == pytest.approx(1.0)
+    ker.step(state, beta=1.0, lam=6.0, f=reward, generator=gen)
+    assert ker.decorrelation(state, base) < 1.0
 
 
 def test_determinism_same_seed():

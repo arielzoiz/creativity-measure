@@ -183,6 +183,26 @@ def test_pcn_determinism():
     assert torch.equal(a.logw, b.logw)
 
 
+def test_pcn_decorrelation_is_dimension_robust():
+    """Normalized-ESJD decorrelation: 1.0 at the baseline, and ~0 at independence in ANY latent dim.
+
+    Guards the dimension-robust metric: the old |cos| form floors at ~2/pi in 2D, so the < 0.1
+    independence assertion below would fail there — this pins portability from the 2D toy to image dims.
+    """
+    from creativity_measure.smc import _State
+    p = _ring_density()
+    ker = PCNKernel(density_generator(p, n_steps=8), 2)     # G is unused by decorrelation()
+    for d in (2, 64):
+        g = torch.Generator().manual_seed(0)
+        z0 = torch.randn(2000, d, generator=g, dtype=dtype)
+        st = _State(X=z0.clone(), fX=torch.zeros(2000, dtype=dtype),
+                    logw=torch.zeros(2000, dtype=dtype), aux={"Z": z0.clone()})
+        base = ker.snapshot_baseline(st)
+        assert ker.decorrelation(st, base) == pytest.approx(1.0)          # sits at baseline
+        st.aux["Z"] = torch.randn(2000, d, generator=g, dtype=dtype)      # independent redraw
+        assert ker.decorrelation(st, base) < 0.1                          # ~0 regardless of d
+
+
 def test_pcn_pixel_seam_smoke():
     """Pixel path runs end-to-end with an analytic mock denoiser (X~N(0,I)); no checkpoint needed."""
     C, H, W = 1, 2, 2
