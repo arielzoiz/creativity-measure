@@ -122,7 +122,7 @@ def _next_dbeta(
 
 
 MAX_N_MCMC: int = 30
-MIN_N_MCMC: int = 2
+MIN_N_MCMC: int = 4
 
 @dataclass(frozen=True)
 class RejuvenationStop:
