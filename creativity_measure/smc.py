@@ -432,6 +432,7 @@ def smc_sample(
     ess_target: float | None = None,
     n_mcmc: int | None = None,
     stop: RejuvenationStop | None = None,
+    max_n_mcmc: int | None = None,
     final_resample: bool = False,
     seed: int | None = None,
 ) -> SMCResult:
@@ -451,8 +452,10 @@ def smc_sample(
     ``n_particles``— as large as compute allows; check ``SMCResult.ess_history[-1]`` is adequate.
     ``ess_target`` / ``n_mcmc`` — Tune via the ESS- and acceptance-vs-β histories. Leaving ``n_mcmc=None``
                     runs **adaptive** rejuvenation: each level sweeps until the resampled duplicates
-                    decorrelate (per-kernel metric), bounded by ``MAX_N_MCMC``; inspect
-                    ``SMCResult.n_mcmc_history`` for the per-level effort.
+                    decorrelate (per-kernel metric), bounded by ``MAX_N_MCMC`` (override the cap per run
+                    with ``max_n_mcmc=``); inspect ``SMCResult.n_mcmc_history`` for the per-level effort.
+                    In high dimensions decorrelation rarely fires, so the cap sets the per-level budget —
+                    lower ``max_n_mcmc`` to bound cost.
 
     Args:
         reward:       frozen reward ``f`` (distance, references, weights); its ``x_refs`` also fixes the run's device/dtype.
@@ -466,6 +469,10 @@ def smc_sample(
                       (see ``stop``); pass an ``int`` to force a fixed number of sweeps (legacy behavior).
         stop:         `RejuvenationStop` policy for the adaptive path (min/max sweeps, decorrelation
                       threshold). ``None`` => defaults. Ignored when ``n_mcmc`` is an int.
+        max_n_mcmc:   convenience cap on adaptive sweeps per level — shorthand for
+                      ``stop=RejuvenationStop(max_n_mcmc=...)`` with all other stop fields at their
+                      defaults. Mutually exclusive with ``stop``. ``None`` => use ``stop`` (or the
+                      ``MAX_N_MCMC`` default). Ignored when ``n_mcmc`` is an int.
         final_resample: if ``True``, resample once at the end so the returned particles are equal-weight.
         seed:         seeds the single internal ``torch.Generator`` that drives every kernel (no global RNG).
 
@@ -475,8 +482,10 @@ def smc_sample(
 
     if ess_target is None:
         ess_target = kernel.default_ess_target
+    if stop is not None and max_n_mcmc is not None:
+        raise ValueError("pass either `max_n_mcmc` (convenience) or a full `stop` policy, not both")
     if stop is None:
-        stop = RejuvenationStop()
+        stop = RejuvenationStop(max_n_mcmc=max_n_mcmc) if max_n_mcmc is not None else RejuvenationStop()
 
     gen = torch.Generator(device=x_refs.device)
     if seed is not None:
