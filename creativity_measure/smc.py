@@ -30,13 +30,18 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import torch
-from jaxtyping import Float, Int
+from jaxtyping import Float
 from torch import Tensor
 
 from creativity_measure.density import Density
+from creativity_measure.smc_common import _ess_from_logw, _systematic_resample
 from creativity_measure.tilt import Reward
 
 RewardFn = Callable[[Tensor], Tensor]   # f(X) -> (N,)
+
+# ``_ess_from_logw`` / ``_systematic_resample`` live in ``smc_common`` (shared with ``diffusion_smc``);
+# re-exported here so existing ``creativity_measure.smc`` imports keep resolving.
+__all__ = ["_ess_from_logw", "_systematic_resample"]
 
 
 @dataclass
@@ -68,32 +73,6 @@ class SMCResult:
 # ---------------------------------------------------------------------------------------------------
 # Kernel-agnostic helpers
 # ---------------------------------------------------------------------------------------------------
-
-def _ess_from_logw(logw: Float[Tensor, "N"]) -> float:
-    """Effective sample size from unnormalized log-weights, in log-space.
-
-    ESS = (sum w)^2 / sum w^2 = exp(2*logsumexp(logw) - logsumexp(2*logw)).
-    Uniform log-weights -> N; a one-hot weight -> 1.
-    """
-    a = torch.logsumexp(logw, dim=0)
-    b = torch.logsumexp(2.0 * logw, dim=0)
-    return float(torch.exp(2.0 * a - b))
-
-
-def _systematic_resample(
-    weights: Float[Tensor, "N"],
-    generator: torch.Generator,
-) -> Int[Tensor, "N"]:
-    """Systematic resampling: return N parent indices with E[count_i] = N * w_i (deterministic given gen)."""
-    n = weights.shape[0]
-    w = weights / weights.sum()
-    cdf = torch.cumsum(w, dim=0)
-    cdf[-1] = 1.0
-    u = torch.rand((), generator=generator, device=weights.device, dtype=weights.dtype)
-    positions = (torch.arange(n, device=weights.device, dtype=weights.dtype) + u) / n
-    idx = torch.searchsorted(cdf, positions)
-    return idx.clamp_max_(n - 1)
-
 
 def _next_dbeta(
     logw: Float[Tensor, "N"],

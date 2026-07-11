@@ -19,6 +19,53 @@ from torch import Tensor
 from creativity_measure.distances.edm_adapter import Denoiser
 
 
+def karras_sigma_schedule(
+    sigma_min: float,
+    sigma_max: float,
+    rho: float,
+    n_steps: int,
+    *,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> Float[Tensor, "steps_plus_1"]:
+    """The decreasing Karras sigma-schedule with a final ``sigma = 0`` appended (length ``n_steps + 1``).
+
+    ``sigma_i = (sigma_max^(1/rho) + i/(n_steps-1) * (sigma_min^(1/rho) - sigma_max^(1/rho)))^rho`` for
+    ``i = 0..n_steps-1``, then a trailing 0 so the last ODE step lands on the data manifold. Shared by the
+    prob-flow generator (``heun_prob_flow``) and the trajectory-space sampler (``diffusion_smc``).
+    """
+    if n_steps < 2:
+        raise ValueError(f"n_steps must be >= 2, got {n_steps}")
+    i = torch.arange(n_steps, device=device, dtype=dtype)
+    inv = 1.0 / rho
+    sigmas = (sigma_max ** inv + i / (n_steps - 1) * (sigma_min ** inv - sigma_max ** inv)) ** rho
+    return torch.cat([sigmas, sigmas.new_zeros(1)])
+
+
+def edm_ode_step(
+    x: Float[Tensor, "B d"],
+    denoiser: Denoiser,
+    s0: Float[Tensor, ""],
+    s1: Float[Tensor, ""],
+) -> Float[Tensor, "B d"]:
+    """One deterministic Heun (2nd-order) step of ``dx/dsigma = (x - D(x, sigma)) / sigma`` from ``s0`` to ``s1``.
+
+    Euler predictor plus a Heun corrector, skipping the corrector when ``s1 == 0`` (the final on-manifold
+    step). ``s0`` / ``s1`` are scalar sigma tensors; the denoiser is called with sigma broadcast to the batch.
+    """
+    b = x.shape[0]
+
+    def d_eval(xx: Tensor, s: Tensor) -> Tensor:
+        return (xx - denoiser(xx, s.expand(b))) / s
+
+    d0 = d_eval(x, s0)
+    x_next = x + (s1 - s0) * d0
+    if float(s1) != 0.0:                           # Heun correction (skip at the final sigma = 0)
+        d1 = d_eval(x_next, s1)
+        x_next = x + (s1 - s0) * 0.5 * (d0 + d1)
+    return x_next
+
+
 def heun_prob_flow(
     z: Float[Tensor, "B d"],
     denoiser: Denoiser,
@@ -34,27 +81,10 @@ def heun_prob_flow(
     from ``sigma_max`` to 0, starting at ``x = sigma_max * z``. No stochasticity (deterministic map).
     Elementwise in ``x``, so a flat ``(B, d)`` layout serves both 2D (d=2) and pixels (d=C*H*W).
     """
-    if n_steps < 2:
-        raise ValueError(f"n_steps must be >= 2, got {n_steps}")
-    b = z.shape[0]
-    i = torch.arange(n_steps, device=z.device, dtype=z.dtype)
-    inv = 1.0 / rho
-    # Karras schedule (decreasing); append a final sigma = 0 so the last step lands on the data manifold.
-    sigmas = (sigma_max ** inv + i / (n_steps - 1) * (sigma_min ** inv - sigma_max ** inv)) ** rho
-    sigmas = torch.cat([sigmas, sigmas.new_zeros(1)])
-
-    def d_eval(x: Tensor, s: Tensor) -> Tensor:
-        return (x - denoiser(x, s.expand(b))) / s
-
+    sigmas = karras_sigma_schedule(sigma_min, sigma_max, rho, n_steps, device=z.device, dtype=z.dtype)
     x = z * sigma_max
     for k in range(n_steps):
-        s0, s1 = sigmas[k], sigmas[k + 1]
-        d0 = d_eval(x, s0)
-        x_next = x + (s1 - s0) * d0
-        if float(s1) != 0.0:                       # Heun correction (skip at the final sigma = 0)
-            d1 = d_eval(x_next, s1)
-            x_next = x + (s1 - s0) * 0.5 * (d0 + d1)
-        x = x_next
+        x = edm_ode_step(x, denoiser, sigmas[k], sigmas[k + 1])
     return x
 
 
