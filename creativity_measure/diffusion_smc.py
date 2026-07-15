@@ -1,3 +1,5 @@
+# Work in progress: this file is a draft
+
 """Twisted-diffusion SMC sampler for  q_lambda(x) ∝ p(x) · exp(lambda · f(x)).
 
 A second sampler for the same tilted target as ``creativity_measure.smc.smc_sample``, but built on a
