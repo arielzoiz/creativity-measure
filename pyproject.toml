@@ -26,6 +26,21 @@ models = [
   "safetensors==0.4.3",
 ]
 
+# FLUX.1-dev needs FluxPipeline, which first ships in diffusers 0.30.0 -- the `models`
+# pins above predate it. Kept as a separate extra so `models` stays Intel-Mac-runnable.
+# sentencepiece/protobuf are required by the T5 tokenizer FLUX uses for its second
+# text encoder; accelerate is what makes the ~24G bf16 transformer load without a
+# full fp32 CPU copy first.
+flux = [
+  "diffusers>=0.31",
+  # <5 on purpose: diffusers bounds transformers only under its test/dev extras, so an
+  # unbounded pin resolves to 5.x, which FLUX's pipeline code has not been written against.
+  "transformers>=4.44,<5",
+  "accelerate",
+  "sentencepiece",
+  "protobuf",
+]
+
 [tool.setuptools.packages.find]
 include = ["creativity_measure*"]
 
