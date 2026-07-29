@@ -142,7 +142,7 @@ class RefSelector(ABC):
 
         Selects references (auto-R if R is None, caching refs + weights) and snapshots them into a Reward whose f
         matches the selector's own reduction (uniform for RandomRefs, frozen Voronoi weights for WeightedFPSRefs).
-        Passed to `smc.smc_sample` and `tilt.tilted_log_density`.
+        Passed to `smc.adaptive_tempering_smc_sample` and `tilt.tilted_log_density`.
         """
         if self.distance is None:
             raise ValueError("needs a `distance`; pass distance= at construction.")

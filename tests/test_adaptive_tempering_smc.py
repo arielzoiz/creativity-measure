@@ -1,4 +1,4 @@
-"""Tests for the gradient-free SMC sampler (creativity_measure/smc.py).
+"""Tests for the gradient-free SMC sampler (creativity_measure/adaptive_tempering_smc.py).
 
 Validated in 2D against grid_normalize ground truth on a Ring-GMM-with-hole, plus
 unit tests for the SMC helpers, determinism, the lambda=0 sanity case, and a
@@ -18,12 +18,12 @@ from creativity_measure import (
     tilted_log_density,
     grid_normalize,
     make_grid,
-    smc_sample,
-    SMCResult,
+    adaptive_tempering_smc_sample,
+    AdaptiveTemperingSMCResult,
     Reward,
     IndependenceKernel,
 )
-from creativity_measure.smc import (
+from creativity_measure.adaptive_tempering_smc import (
     _ess_from_logw,
     _systematic_resample,
     _next_dbeta,
@@ -106,7 +106,7 @@ def _tv(pmf_a, pmf_b) -> float:
     return 0.5 * float((pmf_a - pmf_b).abs().sum())
 
 
-def _smc_weights(res: SMCResult):
+def _smc_weights(res: AdaptiveTemperingSMCResult):
     return torch.softmax(res.logw, dim=0)
 
 
@@ -191,7 +191,7 @@ def test_multi_level_schedule_terminates():
     pool = p.sample(400, seed=0)
     refs = pool[pool[:, 0] > 1.5][:40]
 
-    res = smc_sample(Reward(D, refs), lam=6.0, n_particles=2000,
+    res = adaptive_tempering_smc_sample(Reward(D, refs), lam=6.0, n_particles=2000,
                      kernel=IndependenceKernel(p), n_mcmc=4, final_resample=True, seed=0)
     assert len(res.betas) > 1                 # genuinely multi-level
     assert res.betas[-1] == pytest.approx(1.0)
@@ -208,9 +208,9 @@ def test_adaptive_matches_fixed_when_capped():
     D = LpDistance(2.0)
     reward = RandomRefs(p, distance=D, seed=0).reward(6)
     k = 3
-    a = smc_sample(reward, lam=3.0, n_particles=500, kernel=IndependenceKernel(p),
+    a = adaptive_tempering_smc_sample(reward, lam=3.0, n_particles=500, kernel=IndependenceKernel(p),
                    n_mcmc=None, stop=RejuvenationStop(min_n_mcmc=k, max_n_mcmc=k), seed=0)
-    b = smc_sample(reward, lam=3.0, n_particles=500, kernel=IndependenceKernel(p),
+    b = adaptive_tempering_smc_sample(reward, lam=3.0, n_particles=500, kernel=IndependenceKernel(p),
                    n_mcmc=k, seed=0)
     assert torch.equal(a.X, b.X)
     assert torch.equal(a.logw, b.logw)
@@ -224,13 +224,13 @@ def test_adaptive_rejuvenation_records_bounded_effort():
     pool = p.sample(400, seed=0)
     refs = pool[pool[:, 0] > 1.5][:40]           # clustered refs -> multi-level schedule
     stop = RejuvenationStop()
-    res = smc_sample(Reward(D, refs), lam=6.0, n_particles=1500,
+    res = adaptive_tempering_smc_sample(Reward(D, refs), lam=6.0, n_particles=1500,
                      kernel=IndependenceKernel(p), n_mcmc=None, stop=stop, seed=0)
     assert len(res.n_mcmc_history) == len(res.betas)
     assert all(stop.min_n_mcmc <= n <= MAX_N_MCMC for n in res.n_mcmc_history)
     assert res.X.isfinite().all()
     # determinism of the adaptive path (schedule + particles)
-    res2 = smc_sample(Reward(D, refs), lam=6.0, n_particles=1500,
+    res2 = adaptive_tempering_smc_sample(Reward(D, refs), lam=6.0, n_particles=1500,
                       kernel=IndependenceKernel(p), n_mcmc=None, stop=stop, seed=0)
     assert torch.equal(res.X, res2.X)
     assert res.n_mcmc_history == res2.n_mcmc_history
@@ -254,8 +254,8 @@ def test_determinism_same_seed():
     p, _ = _ring_density()
     D = LpDistance(2.0)
     reward = RandomRefs(p, distance=D, seed=0).reward(6)
-    r1 = smc_sample(reward, lam=3.0, n_particles=200, kernel=IndependenceKernel(p), n_mcmc=2, seed=0)
-    r2 = smc_sample(reward, lam=3.0, n_particles=200, kernel=IndependenceKernel(p), n_mcmc=2, seed=0)
+    r1 = adaptive_tempering_smc_sample(reward, lam=3.0, n_particles=200, kernel=IndependenceKernel(p), n_mcmc=2, seed=0)
+    r2 = adaptive_tempering_smc_sample(reward, lam=3.0, n_particles=200, kernel=IndependenceKernel(p), n_mcmc=2, seed=0)
     assert torch.equal(r1.X, r2.X)
     assert torch.equal(r1.logw, r2.logw)
     assert r1.betas == r2.betas
@@ -274,7 +274,7 @@ def test_2d_recovery_lp():
     reward = sel.reward(6)
     gp, q_pmf = _grid_q_pmf(p, reward, lam, grid_n)
 
-    res = smc_sample(reward, lam=lam, n_particles=N,
+    res = adaptive_tempering_smc_sample(reward, lam=lam, n_particles=N,
                      kernel=IndependenceKernel(p), n_mcmc=4, seed=0)
     w = _smc_weights(res)
     hist = _hist_pmf(res.X, w, grid_n)
@@ -300,7 +300,7 @@ def test_2d_recovery_global_iem():
     reward = sel.reward(4)
     gp, q_pmf = _grid_q_pmf(p, reward, lam, grid_n)
 
-    res = smc_sample(reward, lam=lam, n_particles=N,
+    res = adaptive_tempering_smc_sample(reward, lam=lam, n_particles=N,
                      kernel=IndependenceKernel(p), n_mcmc=2, seed=0)
     w = _smc_weights(res)
     hist = _hist_pmf(res.X, w, grid_n)
@@ -321,7 +321,7 @@ def test_lambda0_recovers_p():
     reward = RandomRefs(p, distance=D, seed=0).reward(6)
     N = 5000
 
-    res = smc_sample(reward, lam=0.0, n_particles=N, kernel=IndependenceKernel(p), n_mcmc=3, seed=0)
+    res = adaptive_tempering_smc_sample(reward, lam=0.0, n_particles=N, kernel=IndependenceKernel(p), n_mcmc=3, seed=0)
     w = _smc_weights(res)
     hist_smc = _hist_pmf(res.X, w, grid_n=20)
 
@@ -339,7 +339,7 @@ def test_monotonicity_in_lambda():
     reward = RandomRefs(p, distance=D, seed=0).reward(6)
 
     def Ef(lam):
-        res = smc_sample(reward, lam=lam, n_particles=3000, kernel=IndependenceKernel(p), n_mcmc=3, seed=0)
+        res = adaptive_tempering_smc_sample(reward, lam=lam, n_particles=3000, kernel=IndependenceKernel(p), n_mcmc=3, seed=0)
         w = _smc_weights(res)
         return float((w * reward(res.X)).sum())
 
@@ -358,7 +358,7 @@ def test_selector_swap_random_vs_weighted_fps():
     sel_u = RandomRefs(p, distance=D, seed=0)
     reward_u = sel_u.reward(8)
     assert reward_u.weights is None                         # uniform selector -> no weights
-    res_u = smc_sample(reward_u, lam=3.0, n_particles=N,
+    res_u = adaptive_tempering_smc_sample(reward_u, lam=3.0, n_particles=N,
                        kernel=IndependenceKernel(p), n_mcmc=2, seed=0)
     assert res_u.X.shape == (N, 2)
     assert res_u.X.isfinite().all()
@@ -369,7 +369,7 @@ def test_selector_swap_random_vs_weighted_fps():
     reward_w = sel_w.reward(8)                              # Voronoi weights ride along, can't be dropped
     refs_w, w = reward_w.x_refs, reward_w.weights
     assert w is not None and w.shape == (8,)
-    res_w = smc_sample(reward_w, lam=3.0, n_particles=N,
+    res_w = adaptive_tempering_smc_sample(reward_w, lam=3.0, n_particles=N,
                        kernel=IndependenceKernel(p), n_mcmc=2, seed=0)
     assert res_w.X.shape == (N, 2)
     assert res_w.X.isfinite().all()
@@ -400,7 +400,7 @@ def test_reward_weighted_pipeline_consistency():
     assert not torch.allclose(reward.weights, torch.full_like(reward.weights, 1.0 / reward.weights.shape[0]))
 
     gp, q_pmf = _grid_q_pmf(p, reward, lam, grid_n)         # grid truth uses reward's weights
-    res = smc_sample(reward, lam=lam, n_particles=N,
+    res = adaptive_tempering_smc_sample(reward, lam=lam, n_particles=N,
                      kernel=IndependenceKernel(p), n_mcmc=4, seed=0)
     w = _smc_weights(res)
 

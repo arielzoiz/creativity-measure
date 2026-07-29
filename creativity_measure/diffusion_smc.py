@@ -2,14 +2,14 @@
 
 """Twisted-diffusion SMC sampler for  q_lambda(x) ∝ p(x) · exp(lambda · f(x)).
 
-A second sampler for the same tilted target as ``creativity_measure.smc.smc_sample``, but built on a
-completely different mechanism. Where ``smc.py`` moves particles in **data space** and treats the
+A second sampler for the same tilted target as ``creativity_measure.adaptive_tempering_smc.adaptive_tempering_smc_sample``, but built on a
+completely different mechanism. Where ``adaptive_tempering_smc.py`` moves particles in **data space** and treats the
 generator ``G(z) -> x`` as a black box, this sampler runs **inside the EDM denoising trajectory**:
 particles descend the Karras sigma-schedule via the model's own ancestral (predict-``x0``-then-renoise)
 step, and at each guided level are reweighted by a *lookahead reward twist* and resampled. High-reward
 trajectories survive and duplicate; the stochastic ancestral step keeps duplicated particles diverse.
 
-The tilt reward ``f`` is the frozen `~creativity_measure.tilt.Reward` (identical to the one ``smc.py``
+The tilt reward ``f`` is the frozen `~creativity_measure.tilt.Reward` (identical to the one ``adaptive_tempering_smc.py``
 consumes) — for the intended use, the **normalized squared-IEM** reward
 (`~creativity_measure.tilt.NormalizedExpectedDistanceReward` + ``SquaredGlobalIEMDistance``, via
 ``selector.normalized_reward(R)``). ``lambda`` enters at full strength through the twist increments;
@@ -26,7 +26,7 @@ Scope (core, approximate weight)
 --------------------------------
 This is the *approximate* twist: each guided level scores its ``K`` clean-lookahead estimates by the
 soft value ``V = logmeanexp_k(lambda·f(z_k))`` and accumulates the telescoping increment ``V - V_prev``.
-Like ``smc.py``'s ``IndependenceKernel`` it **under-tilts** — the denoiser-projected lookahead cannot
+Like ``adaptive_tempering_smc.py``'s ``IndependenceKernel`` it **under-tilts** — the denoiser-projected lookahead cannot
 reach the off-manifold mass of ``q``, so ``E_q[f]`` lands only partway from the prior toward the exact
 target. Quantitative recovery of ``q`` (and the recovery-tether ``-||x_sigma - z||^2/(2 sigma^2)`` +
 Tweedie score quadrature that cancel this bias) is the unbiased score-correction follow-up;
@@ -36,7 +36,7 @@ Determinism
 -----------
 All randomness (initial noise, ancestral + branch ``eps``, resampling) is driven from a single
 ``torch.Generator(seed)``; no global torch RNG state is touched, so same ``seed`` -> identical output
-(given the caller fixed the ``Distance`` Brownian seed upstream, as ``smc.py`` also assumes).
+(given the caller fixed the ``Distance`` Brownian seed upstream, as ``adaptive_tempering_smc.py`` also assumes).
 """
 
 import math

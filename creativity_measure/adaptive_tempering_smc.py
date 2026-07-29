@@ -21,7 +21,7 @@ Notes
 * **Determinism** All randomness is driven from a single ``torch.Generator(seed)`` (pCN draws / MH-accept / resampling,
     *and* `IndependenceKernel`'s ``x' ~ p`` proposals, which thread that same generator through ``Density.sample``). No
     global torch RNG state is touched, so kernel runs are reentrant / thread-safe; same ``seed`` -> identical
-    ``SMCResult.X`` provided the caller fixed the ``Distance`` Brownian seed upstream.
+    ``AdaptiveTemperingSMCResult.X`` provided the caller fixed the ``Distance`` Brownian seed upstream.
 """
 
 import math
@@ -40,13 +40,13 @@ from creativity_measure.tilt import Reward
 RewardFn = Callable[[Tensor], Tensor]   # f(X) -> (N,)
 
 # ``_ess_from_logw`` / ``_systematic_resample`` live in ``smc_common`` (shared with ``diffusion_smc``);
-# re-exported here so existing ``creativity_measure.smc`` imports keep resolving.
+# re-exported here so existing ``creativity_measure.adaptive_tempering_smc`` imports keep resolving.
 __all__ = ["_ess_from_logw", "_systematic_resample"]
 
 
 @dataclass
-class SMCResult:
-    """Output of :func:`smc_sample`.
+class AdaptiveTemperingSMCResult:
+    """Output of :func:`adaptive_tempering_smc_sample`.
 
     Attributes:
         X:          final particles, (N, d).
@@ -81,7 +81,11 @@ def _next_dbeta(
     beta: float,
     ess_target_count: float,
 ) -> float:
-    """Largest ``dβ ∈ (0, 1-β]`` keeping ESS at the target (bisection; ESS is monotone-decreasing in dβ)."""
+    """Largest ``dβ ∈ (0, 1-β]`` keeping ESS at the target (bisection; ESS is monotone-decreasing in dβ).
+
+    Returns ``1-β`` when even the full remaining step holds ESS ≥ target; otherwise the
+    returned dβ puts ESS *at* the target by construction.
+    """
     hi = 1.0 - beta
 
     def ess_at(db: float) -> float:
@@ -104,7 +108,7 @@ MIN_N_MCMC: int = 4
 
 @dataclass(frozen=True)
 class RejuvenationStop:
-    """Stopping policy for adaptive-length rejuvenation (used when ``smc_sample(n_mcmc=None)``).
+    """Stopping policy for adaptive-length rejuvenation (used when ``adaptive_tempering_smc_sample(n_mcmc=None)``).
 
     Each tempering level keeps applying π_β-invariant sweeps until the resampled duplicates have
     **decorrelated** — measured by the kernel's own geometry-aware ``decorrelation`` — subject to a
@@ -156,7 +160,12 @@ class Kernel(ABC):
         self, state: _State, *,
         beta: float, lam: float, f: RewardFn, generator: torch.Generator,
     ) -> float:
-        """Apply **one** π_β-invariant move in place; return that sweep's mean acceptance rate."""
+        """Apply **one** π_β-invariant move in place; return that sweep's mean acceptance rate.
+
+        Invariant means: if the cloud is marginally π_β before the move, it still is after.
+        Sweeps buy diversity — they break up the duplicates left by resampling — never a change of target,
+        so any number of them compose without biasing the level.
+        """
 
     @abstractmethod
     def snapshot_baseline(self, state: _State) -> dict[str, Tensor]:
@@ -171,11 +180,11 @@ class Kernel(ABC):
         beta: float, lam: float, f: RewardFn, n_mcmc: int, generator: torch.Generator,
     ) -> float:
         """Apply ``n_mcmc`` π_β-invariant moves in place; return the mean acceptance rate."""
-        accs = [
+        accept_rates = [
             self.step(state, beta=beta, lam=lam, f=f, generator=generator)
             for _ in range(n_mcmc)
         ]
-        return sum(accs) / len(accs) if accs else 0.0
+        return sum(accept_rates) / len(accept_rates) if accept_rates else 0.0
 
 
 class IndependenceKernel(Kernel):
@@ -198,12 +207,16 @@ class IndependenceKernel(Kernel):
         n = state.X.shape[0]
         Xp = self.p.sample(n, generator=generator)
         fXp = f(Xp)
+        # Metropolis-Hastings. Proposals are drawn from p itself, so the base density cancels and only
+        # the tilt survives: log a = βλ(f(x') - f(x)) — no log p, no ∇f.
         log_a = (beta * lam) * (fXp - state.fX)
         u = torch.rand(n, generator=generator, device=state.X.device, dtype=state.X.dtype)
-        acc = u < torch.exp(log_a.clamp_max(0.0))
-        state.X = torch.where(acc.unsqueeze(-1), Xp, state.X)
-        state.fX = torch.where(acc, fXp, state.fX)
-        return float(acc.to(state.fX.dtype).mean())
+        accepted = u < torch.exp(log_a.clamp_max(0.0))   # clamp_max(0) is the min(1, ·) of the MH rule
+        # On rejection, keeping the old (X, fX).
+        # That, plus the cancellation above, is what makes the sweep π_β-invariant.
+        state.X = torch.where(accepted.unsqueeze(-1), Xp, state.X)
+        state.fX = torch.where(accepted, fXp, state.fX)
+        return float(accepted.to(state.fX.dtype).mean())
 
     def snapshot_baseline(self, state):
         return {"X": state.X.clone()}
@@ -267,18 +280,23 @@ class PCNKernel(Kernel):
         Zp = math.sqrt(1.0 - self.s * self.s) * Z + self.s * xi
         Xp = self.G(Zp)
         fXp = f(Xp)
+        # Metropolis-Hastings. The pCN proposal is reversible w.r.t. the latent prior N(0,I),
+        # so the prior cancels and only the tilt survives: log a = βλ(f(x') - f(x)). No log p, no ∇f.
         log_a = (beta * lam) * (fXp - state.fX)
         u = torch.rand(n, generator=generator, device=Z.device, dtype=Z.dtype)
-        acc = u < torch.exp(log_a.clamp_max(0.0))
-        am = acc.unsqueeze(-1)
-        state.aux["Z"] = torch.where(am, Zp, Z)
-        state.X = torch.where(am, Xp, state.X)
-        state.fX = torch.where(acc, fXp, state.fX)
-        acc_rate = float(acc.to(state.fX.dtype).mean())
+        accepted = u < torch.exp(log_a.clamp_max(0.0))   # clamp_max(0) is the min(1, ·) of the MH rule
+        accept_mask = accepted.unsqueeze(-1)   # (N, 1): a particle moves as a unit, never component-wise
+        # Rejection keeps the old (Z, X, fX).
+        # That, plus reversibility, is what makes the sweep π_β-invariant.
+        state.aux["Z"] = torch.where(accept_mask, Zp, Z)
+        state.X = torch.where(accept_mask, Xp, state.X)
+        state.fX = torch.where(accepted, fXp, state.fX)
+
+        accept_rate = float(accepted.to(state.fX.dtype).mean())
         # Robbins-Monro: nudge log-step toward the target acceptance, clamp s in (1e-3, 0.999).
-        new_log_s = math.log(self.s) + self.adapt_rate * (acc_rate - self.target_acc)
+        new_log_s = math.log(self.s) + self.adapt_rate * (accept_rate - self.target_acc)
         self.s = min(0.999, max(1e-3, math.exp(new_log_s)))
-        return acc_rate
+        return accept_rate
 
     def snapshot_baseline(self, state):
         return {"Z": state.aux["Z"].clone()}
@@ -300,6 +318,13 @@ class PCNKernel(Kernel):
 # Shared SMC loop
 # ---------------------------------------------------------------------------------------------------
 
+def _resample_and_reset(kernel: Kernel, state: _State, generator: torch.Generator) -> None:
+    """Collapse the weighted cloud into an equally-weighted one: systematic resample, reindex, logw←0."""
+    idx = _systematic_resample(torch.softmax(state.logw, dim=0), generator)
+    kernel.reorder(state, idx)
+    state.logw = torch.zeros_like(state.logw)
+
+
 def _rejuvenate_adaptive(
     kernel: Kernel,
     state: _State,
@@ -315,18 +340,25 @@ def _rejuvenate_adaptive(
     Stop (``reason="decorr"``): ``kernel.decorrelation`` < ``decorr_threshold`` (geometry-aware), gated by
     the ``min_n_mcmc`` floor. If it does not fire within ``max_n_mcmc`` sweeps, ``reason="cap"`` — this is
     the correct behavior for a stuck (low-acceptance) level: keep spending the full budget on transport.
+
+    Each sweep is π_β-invariant (see ``Kernel.step``), so the cloud's law is unchanged however many run;
+    what varies is only how far the duplicates left by resampling have spread. The *number* of sweeps,
+    though, is read off the cloud itself, making the composite kernel adaptive rather than exactly
+    invariant — the same approximation already accepted for the ESS-driven β schedule, and justified
+    asymptotically in N rather than per run.
     """
     baseline = kernel.snapshot_baseline(state)
-    accs: list[float] = []
+    accept_rates: list[float] = []
     reason = "cap"
     for t in range(stop.max_n_mcmc):
-        accs.append(kernel.step(state, beta=beta, lam=lam, f=f, generator=generator))
+        accept_rates.append(kernel.step(state, beta=beta, lam=lam, f=f, generator=generator))
         if t < stop.min_n_mcmc - 1:
             continue
         if kernel.decorrelation(state, baseline) < stop.decorr_threshold:
             reason = "decorr"
             break
-    return (sum(accs) / len(accs) if accs else 0.0), len(accs), reason
+    mean_accept_rate = sum(accept_rates) / len(accept_rates) if accept_rates else 0.0
+    return mean_accept_rate, len(accept_rates), reason
 
 
 def _run_smc(
@@ -342,7 +374,7 @@ def _run_smc(
     generator: torch.Generator,
     device: torch.device,
     dtype: torch.dtype,
-) -> SMCResult:
+) -> AdaptiveTemperingSMCResult:
     state = kernel.init(n_particles, f, generator=generator, device=device, dtype=dtype)
     beta = 0.0
     ess_target_count = ess_target * n_particles
@@ -355,31 +387,36 @@ def _run_smc(
 
     while beta < 1.0:
         # (a) adaptive temperature
+        #   dβ hitting its 1-β ceiling means this level lands on β=1
+        #   (1e-12 / min() absorb bisection float slop).
         dbeta = _next_dbeta(state.logw, state.fX, lam, beta, ess_target_count)
         final_level = dbeta >= (1.0 - beta) - 1e-12
         beta = min(beta + dbeta, 1.0)
 
         # (b) reweight
+        #   π_β ∝ p·exp(βλf), so the incremental weight is π_{β+dβ}/π_β = exp(dβ·λ·f(x)).
+        #   p cancels, making the update exact and gradient-free. state.fX matches state.X (kernel.step refreshes it, reorder permutes it).
         state.logw = state.logw + dbeta * lam * state.fX
         ess = _ess_from_logw(state.logw)
         betas.append(beta)
         ess_history.append(ess)
 
-        # (c) resample (non-final levels sit exactly at the ESS target by construction -> always reset)
+        # (c) resample
+        #   collapse weights back into particles (duplicate heavy, drop light) so (d) rejuvenates an equally-weighted cloud.
+        #   Non-final levels resample unconditionally.
+        #   only the final level can sit well above target, so only it gets a real test against the ESS target.
         if (not final_level) or ess < ess_target_count:
-            idx = _systematic_resample(torch.softmax(state.logw, dim=0), generator)
-            kernel.reorder(state, idx)
-            state.logw = torch.zeros_like(state.logw)
+            _resample_and_reset(kernel, state, generator)
 
         # (d) rejuvenate with the chosen kernel (invariant to π_β); adaptive length unless n_mcmc is fixed
         if n_mcmc is None:
-            acc, n_used, reason = _rejuvenate_adaptive(
+            accept_rate, n_used, reason = _rejuvenate_adaptive(
                 kernel, state, beta=beta, lam=lam, f=f, generator=generator, stop=stop
             )
         else:
-            acc = kernel.rejuvenate(state, beta=beta, lam=lam, f=f, n_mcmc=n_mcmc, generator=generator)
+            accept_rate = kernel.rejuvenate(state, beta=beta, lam=lam, f=f, n_mcmc=n_mcmc, generator=generator)
             n_used, reason = n_mcmc, "fixed"
-        acc_history.append(acc)
+        acc_history.append(accept_rate)
         n_mcmc_history.append(n_used)
         stop_reason_history.append(reason)
 
@@ -387,11 +424,9 @@ def _run_smc(
             break
 
     if final_resample:
-        idx = _systematic_resample(torch.softmax(state.logw, dim=0), generator)
-        kernel.reorder(state, idx)
-        state.logw = torch.zeros_like(state.logw)
+        _resample_and_reset(kernel, state, generator)
 
-    return SMCResult(
+    return AdaptiveTemperingSMCResult(
         X=state.X,
         logw=state.logw,
         betas=betas,
@@ -402,7 +437,7 @@ def _run_smc(
     )
 
 
-def smc_sample(
+def adaptive_tempering_smc_sample(
     reward: Reward,
     lam: float,
     n_particles: int,
@@ -414,7 +449,7 @@ def smc_sample(
     max_n_mcmc: int | None = None,
     final_resample: bool = False,
     seed: int | None = None,
-) -> SMCResult:
+) -> AdaptiveTemperingSMCResult:
     """Sample from  q̂_lambda(x) ∝ p(x) · exp(lambda · f(x))  via adaptive-tempering SMC.
 
     The reward ``f(x) = Σ_r w_r D(x, x'_r) / Σ_r w_r`` is the frozen `~creativity_measure.tilt.Reward`
@@ -428,11 +463,11 @@ def smc_sample(
                     unitless τ-rule; ``RandomRefs`` => uniform weights, ``WeightedFPSRefs`` => Voronoi).
     ``kernel`` - `PCNKernel` for strong / off-manifold tilts;
                     `IndependenceKernel`(p) is fine when ``q ≈ p`` (mild tilt). The base density ``p`` lives in `IndependenceKernel`.
-    ``n_particles``— as large as compute allows; check ``SMCResult.ess_history[-1]`` is adequate.
+    ``n_particles``— as large as compute allows; check ``AdaptiveTemperingSMCResult.ess_history[-1]`` is adequate.
     ``ess_target`` / ``n_mcmc`` — Tune via the ESS- and acceptance-vs-β histories. Leaving ``n_mcmc=None``
                     runs **adaptive** rejuvenation: each level sweeps until the resampled duplicates
                     decorrelate (per-kernel metric), bounded by ``MAX_N_MCMC`` (override the cap per run
-                    with ``max_n_mcmc=``); inspect ``SMCResult.n_mcmc_history`` for the per-level effort.
+                    with ``max_n_mcmc=``); inspect ``AdaptiveTemperingSMCResult.n_mcmc_history`` for the per-level effort.
                     In high dimensions decorrelation rarely fires, so the cap sets the per-level budget —
                     lower ``max_n_mcmc`` to bound cost.
 
@@ -455,7 +490,7 @@ def smc_sample(
         final_resample: if ``True``, resample once at the end so the returned particles are equal-weight.
         seed:         seeds the single internal ``torch.Generator`` that drives every kernel (no global RNG).
 
-    Returns: `SMCResult`.
+    Returns: `AdaptiveTemperingSMCResult`.
     """
     x_refs = reward.x_refs
 

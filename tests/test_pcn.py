@@ -1,4 +1,4 @@
-"""Tests for the Phase-2 latent-space pCN kernel (creativity_measure/smc.py::PCNKernel).
+"""Tests for the Phase-2 latent-space pCN kernel (creativity_measure/adaptive_tempering_smc.py::PCNKernel).
 
 Validated in 2D against grid_normalize at mild lambda (the architecture check), plus the high-lambda
 payoff (pCN avoids the impoverishment that independence-MH suffers) and a pixel-seam smoke test that runs
@@ -17,7 +17,7 @@ from creativity_measure import (
     tilted_log_density,
     grid_normalize,
     make_grid,
-    smc_sample,
+    adaptive_tempering_smc_sample,
     Reward,
     IndependenceKernel,
     PCNKernel,
@@ -31,7 +31,7 @@ XLIM = (-6.0, 6.0)
 YLIM = (-6.0, 6.0)
 
 
-# --- Ring-GMM-with-hole (mirrors tests/test_smc.py) -------------------------------------------
+# --- Ring-GMM-with-hole (mirrors tests/test_adaptive_tempering_smc.py) -------------------------------------------
 
 def _ring_density(n_total: int = 12, hole_idx: int = 0, radius: float = 4.0, sigma: float = 0.3):
     angles = 2 * math.pi * torch.arange(n_total, dtype=dtype) / n_total
@@ -107,7 +107,7 @@ def test_pcn_lambda0_recovers_p():
     p = _ring_density()
     D = _global_iem(p)
     refs = _refs(p)
-    res = smc_sample(Reward(D, refs), lam=0.0, n_particles=3000,
+    res = adaptive_tempering_smc_sample(Reward(D, refs), lam=0.0, n_particles=3000,
                      kernel=_pcn(p), n_mcmc=2, final_resample=True, seed=0)
     base = p.sample(3000)
     assert _tv(_hist_pmf(res.X, 24), _hist_pmf(base, 24)) < 0.15
@@ -126,9 +126,9 @@ def test_pcn_recovery_vs_grid_and_independence():
     grid_n = 24
     gp, q_pmf = _grid_q_pmf(p, reward, lam, grid_n=grid_n)
 
-    res_pcn = smc_sample(reward, lam=lam, n_particles=1500,
+    res_pcn = adaptive_tempering_smc_sample(reward, lam=lam, n_particles=1500,
                          kernel=_pcn(p, s0=0.5), n_mcmc=3, final_resample=True, seed=0)
-    res_ind = smc_sample(reward, lam=lam, n_particles=1500,
+    res_ind = adaptive_tempering_smc_sample(reward, lam=lam, n_particles=1500,
                          kernel=IndependenceKernel(p), n_mcmc=3, final_resample=True, seed=0)
 
     # 1) reward match (robust scalar)
@@ -156,9 +156,9 @@ def test_pcn_beats_independence_high_lambda():
     reward = Reward(D, refs)
     N = 800
 
-    rp = smc_sample(reward, lam=lam, n_particles=N,
+    rp = adaptive_tempering_smc_sample(reward, lam=lam, n_particles=N,
                     kernel=_pcn(p, s0=0.5), n_mcmc=2, final_resample=True, seed=0)
-    ri = smc_sample(reward, lam=lam, n_particles=N,
+    ri = adaptive_tempering_smc_sample(reward, lam=lam, n_particles=N,
                     kernel=IndependenceKernel(p), n_mcmc=2, final_resample=True, seed=0)
 
     uniq_p = torch.unique(rp.X, dim=0).shape[0]
@@ -177,8 +177,8 @@ def test_pcn_determinism():
     D = GlobalIEMDistance(p, torch.logspace(-2, 6, 12, base=2, dtype=dtype), num_eps=4, seed=123)
     refs = _refs(p, r=8)
     reward = Reward(D, refs)
-    a = smc_sample(reward, lam=2.0, n_particles=200, kernel=_pcn(p), n_mcmc=2, seed=0)
-    b = smc_sample(reward, lam=2.0, n_particles=200, kernel=_pcn(p), n_mcmc=2, seed=0)
+    a = adaptive_tempering_smc_sample(reward, lam=2.0, n_particles=200, kernel=_pcn(p), n_mcmc=2, seed=0)
+    b = adaptive_tempering_smc_sample(reward, lam=2.0, n_particles=200, kernel=_pcn(p), n_mcmc=2, seed=0)
     assert torch.equal(a.X, b.X)
     assert torch.equal(a.logw, b.logw)
 
@@ -189,7 +189,7 @@ def test_pcn_decorrelation_is_dimension_robust():
     Guards the dimension-robust metric: the old |cos| form floors at ~2/pi in 2D, so the < 0.1
     independence assertion below would fail there — this pins portability from the 2D toy to image dims.
     """
-    from creativity_measure.smc import _State
+    from creativity_measure.adaptive_tempering_smc import _State
     p = _ring_density()
     ker = PCNKernel(density_generator(p, n_steps=8), 2)     # G is unused by decorrelation()
     for d in (2, 64):
@@ -219,7 +219,7 @@ def test_pcn_pixel_seam_smoke():
     G = edm_generator(mock_denoiser, img_shape=(C, H, W), sigma_max=20.0, n_steps=24)
     refs = torch.randn(8, d, dtype=dtype)              # flat references in pixel space
 
-    res = smc_sample(Reward(D, refs), lam=0.0, n_particles=64,
+    res = adaptive_tempering_smc_sample(Reward(D, refs), lam=0.0, n_particles=64,
                      kernel=PCNKernel(G, d), n_mcmc=2, final_resample=True, seed=0)
 
     assert res.X.shape == (64, d)

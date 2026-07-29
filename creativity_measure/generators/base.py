@@ -3,7 +3,7 @@
 This is the model-agnostic core every factory in ``creativity_measure.generators`` funnels into.
 ``heun_prob_flow`` integrates the deterministic EDM/Karras prob-flow ODE; ``edm_generator`` wraps a
 denoiser ``D(x_sigma, sigma) = E[X | x_sigma]`` into the flat ``(B, d)`` generator interface the SMC
-consumes (see ``creativity_measure/smc.py`` ``PCNKernel``). ``eps_to_edm_denoiser`` adapts a VP
+consumes (see ``creativity_measure/adaptive_tempering_smc.py`` ``PCNKernel``). ``eps_to_edm_denoiser`` adapts a VP
 epsilon-predictor into that EDM denoiser convention.
 
 ``G`` MUST be deterministic (fixed solver, fixed ``n_steps``, no injected noise); otherwise the pCN prior
@@ -101,7 +101,7 @@ def edm_generator(
 
     The SMC keeps latents/particles flat ``(B, d=C*H*W)``; ``img_shape`` reshapes flat <-> image around the
     denoiser, exactly as ``edm_adapter.edm_score_fn`` does. This is the builder every model factory in this
-    package returns; no change to ``smc.py`` / ``PCNKernel`` is needed to switch models.
+    package returns; no change to ``adaptive_tempering_smc.py`` / ``PCNKernel`` is needed to switch models.
     """
     def wrapped(x: Float[Tensor, "B d"], sigma: Float[Tensor, "B"]) -> Float[Tensor, "B d"]:
         if img_shape is None:

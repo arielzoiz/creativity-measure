@@ -1,6 +1,6 @@
 """Tests for the twisted-diffusion SMC sampler (creativity_measure/diffusion_smc.py).
 
-Same tilted target as smc.py, different mechanism (runs inside the EDM denoising trajectory). Validated
+Same tilted target as adaptive_tempering_smc.py, different mechanism (runs inside the EDM denoising trajectory). Validated
 in 2D against grid_normalize on a Ring-GMM-with-hole (the shared toy): lambda=0 recovers p, E_q[f] tracks
 the grid and rises with lambda, plus determinism and a pixel-path smoke test with an analytic denoiser.
 """
@@ -28,7 +28,7 @@ XLIM = (-6.0, 6.0)
 YLIM = (-6.0, 6.0)
 
 
-# --- Ring-GMM-with-hole (mirrors tests/test_smc.py, tests/test_pcn.py) --------------------------
+# --- Ring-GMM-with-hole (mirrors tests/test_adaptive_tempering_smc.py, tests/test_pcn.py) --------------------------
 
 def _ring_density(n_total: int = 12, hole_idx: int = 0, radius: float = 4.0, sigma: float = 0.3):
     angles = 2 * math.pi * torch.arange(n_total, dtype=dtype) / n_total
@@ -72,7 +72,7 @@ def _lambda0(p, D, refs):
     return (p.log_p_X(refs).std() / expected_distance(D, refs, refs).std()).item()
 
 
-# --- histogram helpers (shared with test_smc.py / test_pcn.py) ---------------------------------
+# --- histogram helpers (shared with test_adaptive_tempering_smc.py / test_pcn.py) ---------------------------------
 
 def _hist_pmf(samples, grid_n):
     ci = (((samples[:, 0] - XLIM[0]) / (XLIM[1] - XLIM[0])) * (grid_n - 1)).round().long().clamp(0, grid_n - 1)

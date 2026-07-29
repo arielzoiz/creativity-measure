@@ -36,7 +36,7 @@ class Reward:
     Holds the three pieces that define f: the `distance`, the frozen reference set `x_refs`, and
     the per-reference `weights` (None => uniform).
     
-    Frozen so f is fixed once selected - the determinism the SMC/MCMC theory assumes (see `smc.py`).
+    Frozen so f is fixed once selected - the determinism the SMC/MCMC theory assumes (see `adaptive_tempering_smc.py`).
     `x_refs` also pins the run's device/dtype.
     """
 

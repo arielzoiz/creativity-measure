@@ -23,7 +23,7 @@ Everything else (distances, refsets, generators) is fixed infrastructure that an
 
 **Current samplers** (`creativity_measure/`):
 
-- `smc.py` — the mature one. Adaptive-tempering SMC over $\beta \in [0,1]$ with a pluggable rejuvenation `Kernel`:
+- `adaptive_tempering_smc.py` — the mature one. Adaptive-tempering SMC over $\beta \in [0,1]$ with a pluggable rejuvenation `Kernel`:
   `PCNKernel` should be used (local prior-preserving pCN moves in the generator's latent Gaussian space, $x = G(z)$ — the workhorse for strong/off-manifold tilts)
   while `IndependenceKernel` is stale.
 - `diffusion_smc.py` — **WIP draft**. Twisted-diffusion SMC: guide *inside* the EDM denoising trajectory with a lookahead reward twist instead of moving in data space.

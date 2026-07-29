@@ -1,7 +1,7 @@
 """Particle-weight helpers shared by the SMC samplers.
 
-Kernel- and schedule-agnostic primitives lifted out of ``smc.py`` so both the data-space
-adaptive-tempering sampler (``smc.py``) and the trajectory-space twisted-diffusion sampler
+Kernel- and schedule-agnostic primitives lifted out of ``adaptive_tempering_smc.py`` so both the data-space
+adaptive-tempering sampler (``adaptive_tempering_smc.py``) and the trajectory-space twisted-diffusion sampler
 (``diffusion_smc.py``) reuse one implementation of ESS and systematic resampling. Keeping them
 here avoids a dependency edge from ``diffusion_smc`` onto ``smc`` (and its tempering machinery).
 
