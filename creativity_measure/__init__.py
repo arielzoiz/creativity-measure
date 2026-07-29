@@ -15,7 +15,8 @@ from creativity_measure.plotting import (
     make_grid, plot_field, plot_samples, panel_grid, lambda_sweep,
 )
 from creativity_measure.adaptive_tempering_smc import (
-    adaptive_tempering_smc_sample, AdaptiveTemperingSMCResult, Kernel, IndependenceKernel, PCNKernel,
+    adaptive_tempering_smc_sample, AdaptiveTemperingSMCResult, LevelSnapshot,
+    Kernel, IndependenceKernel, PCNKernel,
     RejuvenationStop, MAX_N_MCMC, MIN_N_MCMC
 )
 from creativity_measure.diffusion_smc import diffusion_smc_sample, DiffusionSMCResult

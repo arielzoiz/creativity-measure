@@ -45,6 +45,37 @@ __all__ = ["_ess_from_logw", "_systematic_resample"]
 
 
 @dataclass
+class LevelSnapshot:
+    """The particle cloud at one tempering level, captured after rejuvenation.
+
+    Level ``k`` targets  π_{β_k} ∝ p·exp(β_k·λ·f) = q_{λ_eff}  with ``lam_eff = β_k · λ``. So a *single*
+    run at ``λ`` carries a whole λ-sweep: each snapshot is a valid sample set for its own effective tilt,
+    against the identical reward, references and base density (which separate per-λ runs never quite match).
+
+    Caveat: consecutive snapshots share ancestry — a snapshot is not an independent draw from q_{lam_eff},
+    and neighbouring levels are strongly correlated. ``ancestors`` makes that lineage explicit rather than
+    hiding it.
+
+    Attributes:
+        beta:      tempering level β ∈ [0, 1].
+        lam_eff:   ``beta * lam`` — the tilt strength this cloud actually targets.
+        X:         (N, d) particles after the level's rejuvenation sweeps.
+        fX:        (N,) reward at ``X`` (already computed by the sweeps — free to keep).
+        logw:      (N,) unnormalized log-weights; zeros unless the level skipped resampling.
+        ancestors: (N,) long — for particle ``i``, the index of its parent in the *previous* snapshot's
+                   ``X``. ``arange(N)`` on levels that skipped resampling. Walk it backwards to trace one
+                   particle's lineage across λ_eff.
+    """
+
+    beta: float
+    lam_eff: float
+    X: Float[Tensor, "N d"]
+    fX: Float[Tensor, "N"]
+    logw: Float[Tensor, "N"]
+    ancestors: Tensor
+
+
+@dataclass
 class AdaptiveTemperingSMCResult:
     """Output of :func:`adaptive_tempering_smc_sample`.
 
@@ -59,6 +90,11 @@ class AdaptiveTemperingSMCResult:
                     fixed-``n_mcmc`` mode; adaptive per level otherwise).
         stop_reason_history: why rejuvenation stopped at each level — ``"decorr"`` (decorrelation
                     threshold), ``"cap"`` (hit ``max_n_mcmc``), or ``"fixed"`` (non-adaptive ``n_mcmc`` path).
+        levels:     per-level `LevelSnapshot`s when the run was given ``keep_levels=True``; ``None`` otherwise.
+                    **Indexing:** ``levels[0]`` is the β=0 initial cloud (π_0 = p, ``lam_eff=0``) — the free
+                    untilted baseline — so ``len(levels) == len(betas) + 1`` and ``levels[k]`` corresponds to
+                    ``betas[k-1]`` for k ≥ 1. With ``final_resample=True``, ``X`` above is resampled once more
+                    and so differs from ``levels[-1].X``.
     """
 
     X: Float[Tensor, "N d"]
@@ -68,6 +104,7 @@ class AdaptiveTemperingSMCResult:
     acc_history: list[float]
     n_mcmc_history: list[int]
     stop_reason_history: list[str]
+    levels: list[LevelSnapshot] | None = None
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -318,11 +355,30 @@ class PCNKernel(Kernel):
 # Shared SMC loop
 # ---------------------------------------------------------------------------------------------------
 
-def _resample_and_reset(kernel: Kernel, state: _State, generator: torch.Generator) -> None:
-    """Collapse the weighted cloud into an equally-weighted one: systematic resample, reindex, logw←0."""
+def _resample_and_reset(kernel: Kernel, state: _State, generator: torch.Generator) -> Tensor:
+    """Collapse the weighted cloud into an equally-weighted one: systematic resample, reindex, logw←0.
+
+    Returns the resample index (parent of each particle) so callers can record ancestry.
+    """
     idx = _systematic_resample(torch.softmax(state.logw, dim=0), generator)
     kernel.reorder(state, idx)
     state.logw = torch.zeros_like(state.logw)
+    return idx
+
+
+def _snapshot(
+    state: _State, *, beta: float, lam: float, ancestors: Tensor,
+    device: torch.device | str | None,
+) -> LevelSnapshot:
+    """Clone the current cloud into a `LevelSnapshot` (never a view into live state)."""
+    def keep(t: Tensor) -> Tensor:
+        t = t.detach().clone()
+        return t if device is None else t.to(device)
+
+    return LevelSnapshot(
+        beta=beta, lam_eff=beta * lam,
+        X=keep(state.X), fX=keep(state.fX), logw=keep(state.logw), ancestors=keep(ancestors),
+    )
 
 
 def _rejuvenate_adaptive(
@@ -374,6 +430,8 @@ def _run_smc(
     generator: torch.Generator,
     device: torch.device,
     dtype: torch.dtype,
+    keep_levels: bool = False,
+    snapshot_device: torch.device | str | None = "cpu",
 ) -> AdaptiveTemperingSMCResult:
     state = kernel.init(n_particles, f, generator=generator, device=device, dtype=dtype)
     beta = 0.0
@@ -384,6 +442,14 @@ def _run_smc(
     acc_history: list[float] = []
     n_mcmc_history: list[int] = []
     stop_reason_history: list[str] = []
+
+    # Snapshotting only reads the state (deep copies), so it never touches ``generator``.
+    # A run with ``keep_levels=True`` is bit-identical to one without.
+    no_resample = torch.arange(n_particles, device=device)
+    levels: list[LevelSnapshot] | None = None
+    if keep_levels:
+        # levels[0]: the untilted β=0 cloud (π_0 = p), i.e. the free lam_eff=0 baseline row.
+        levels = [_snapshot(state, beta=0.0, lam=lam, ancestors=no_resample, device=snapshot_device)]
 
     while beta < 1.0:
         # (a) adaptive temperature
@@ -405,8 +471,9 @@ def _run_smc(
         #   collapse weights back into particles (duplicate heavy, drop light) so (d) rejuvenates an equally-weighted cloud.
         #   Non-final levels resample unconditionally.
         #   only the final level can sit well above target, so only it gets a real test against the ESS target.
+        ancestors = no_resample
         if (not final_level) or ess < ess_target_count:
-            _resample_and_reset(kernel, state, generator)
+            ancestors = _resample_and_reset(kernel, state, generator)
 
         # (d) rejuvenate with the chosen kernel (invariant to π_β); adaptive length unless n_mcmc is fixed
         if n_mcmc is None:
@@ -419,6 +486,10 @@ def _run_smc(
         acc_history.append(accept_rate)
         n_mcmc_history.append(n_used)
         stop_reason_history.append(reason)
+
+        # (e) snapshot: sweeps done, β about to advance — the cloud is a valid sample of q_{β·λ} right here.
+        if levels is not None:
+            levels.append(_snapshot(state, beta=beta, lam=lam, ancestors=ancestors, device=snapshot_device))
 
         if final_level:
             break
@@ -434,6 +505,7 @@ def _run_smc(
         acc_history=acc_history,
         n_mcmc_history=n_mcmc_history,
         stop_reason_history=stop_reason_history,
+        levels=levels,
     )
 
 
@@ -448,6 +520,8 @@ def adaptive_tempering_smc_sample(
     stop: RejuvenationStop | None = None,
     max_n_mcmc: int | None = None,
     final_resample: bool = False,
+    keep_levels: bool = False,
+    snapshot_device: torch.device | str | None = "cpu",
     seed: int | None = None,
 ) -> AdaptiveTemperingSMCResult:
     """Sample from  q̂_lambda(x) ∝ p(x) · exp(lambda · f(x))  via adaptive-tempering SMC.
@@ -488,6 +562,13 @@ def adaptive_tempering_smc_sample(
                       defaults. Mutually exclusive with ``stop``. ``None`` => use ``stop`` (or the
                       ``MAX_N_MCMC`` default). Ignored when ``n_mcmc`` is an int.
         final_resample: if ``True``, resample once at the end so the returned particles are equal-weight.
+        keep_levels:  if ``True``, also return the particle cloud at *every* tempering level (see `LevelSnapshot`),
+                      captured after that level's rejuvenation sweeps and before β advances.
+                      Since level β targets q_{β·λ}, one run at ``lam`` then yields a whole λ-sweep for free —
+                      no extra reward evaluations, no extra randomness (the results are bit-identical to a
+                      ``keep_levels=False`` run with the same ``seed``).
+        snapshot_device: where ``keep_levels`` snapshots are stored. Defaults to ``"cpu"`` so a long high-dimensional run
+                      does not accumulate levels in VRAM alongside the generator; ``None`` keeps them on the compute device.
         seed:         seeds the single internal ``torch.Generator`` that drives every kernel (no global RNG).
 
     Returns: `AdaptiveTemperingSMCResult`.
@@ -509,4 +590,5 @@ def adaptive_tempering_smc_sample(
         kernel, reward, lam, n_particles,
         ess_target=ess_target, n_mcmc=n_mcmc, stop=stop, final_resample=final_resample,
         generator=gen, device=x_refs.device, dtype=x_refs.dtype,
+        keep_levels=keep_levels, snapshot_device=snapshot_device,
     )

@@ -262,6 +262,84 @@ def test_determinism_same_seed():
 
 
 # ===========================================================================
+# Per-level snapshots (keep_levels): one run == a lambda sweep
+# ===========================================================================
+
+def _multilevel_run(**kwargs):
+    """A genuinely multi-level run (clustered refs -> wide f-spread), plus its reward."""
+    p, _ = _ring_density()
+    D = LpDistance(2.0)
+    pool = p.sample(400, seed=0)
+    refs = pool[pool[:, 0] > 1.5][:40]
+    reward = Reward(D, refs)
+    res = adaptive_tempering_smc_sample(reward, lam=6.0, n_particles=300,
+                                        kernel=IndependenceKernel(p), n_mcmc=3, seed=0, **kwargs)
+    return res, reward
+
+
+def test_keep_levels_does_not_perturb_the_run():
+    """The load-bearing test: snapshotting only reads state, so it must not touch the RNG stream."""
+    off, _ = _multilevel_run()
+    on, _ = _multilevel_run(keep_levels=True)
+    assert torch.equal(off.X, on.X)
+    assert torch.equal(off.logw, on.logw)
+    assert off.betas == on.betas
+    assert off.ess_history == on.ess_history
+    assert off.n_mcmc_history == on.n_mcmc_history
+    assert off.levels is None
+
+
+def test_level_snapshots_bookkeeping():
+    """levels[0] is the beta=0 baseline; levels[k] carries betas[k-1] and lam_eff = beta*lam."""
+    res, _ = _multilevel_run(keep_levels=True)
+    levels = res.levels
+    assert levels is not None
+    assert len(res.betas) > 1                       # the sweep is only interesting when multi-level
+    assert len(levels) == len(res.betas) + 1        # +1 for the free untilted lam_eff=0 row
+    assert levels[0].beta == 0.0 and levels[0].lam_eff == 0.0
+    for k, beta in enumerate(res.betas, start=1):
+        assert levels[k].beta == pytest.approx(beta)
+        assert levels[k].lam_eff == pytest.approx(beta * 6.0)
+    # lam_eff ascends: that ordering is what makes the snapshots a lambda sweep.
+    assert all(a.lam_eff <= b.lam_eff for a, b in zip(levels, levels[1:]))
+
+
+def test_level_snapshot_fX_matches_its_particles():
+    """fX must be the reward *at* the snapshot's X — otherwise the free E_q[f] curve is a lie."""
+    res, reward = _multilevel_run(keep_levels=True)
+    assert res.levels is not None
+    for lvl in res.levels:
+        assert torch.allclose(reward(lvl.X), lvl.fX)
+        assert lvl.X.shape[0] == lvl.fX.shape[0] == lvl.logw.shape[0] == 300
+
+
+def test_level_snapshots_are_clones_not_views():
+    res, _ = _multilevel_run(keep_levels=True, snapshot_device=None)
+    assert res.levels is not None
+    before = res.levels[-1].X.clone()
+    res.X.add_(1.0)                                  # mutate the live result in place
+    assert torch.equal(res.levels[-1].X, before)
+
+
+def test_level_snapshot_ancestors():
+    """ancestors indexes the previous snapshot's X; arange on levels that skipped resampling."""
+    res, _ = _multilevel_run(keep_levels=True)
+    assert res.levels is not None
+    n = res.X.shape[0]
+    for lvl in res.levels:
+        assert lvl.ancestors.shape == (n,)
+        assert lvl.ancestors.dtype == torch.int64
+        assert bool((lvl.ancestors >= 0).all() and (lvl.ancestors < n).all())
+    assert torch.equal(res.levels[0].ancestors, torch.arange(n))   # nothing precedes the initial cloud
+
+
+def test_snapshot_device_defaults_to_cpu():
+    res, _ = _multilevel_run(keep_levels=True)
+    assert res.levels is not None
+    assert all(lvl.X.device.type == "cpu" for lvl in res.levels)
+
+
+# ===========================================================================
 # 2D recovery vs grid_normalize ground truth
 # ===========================================================================
 
