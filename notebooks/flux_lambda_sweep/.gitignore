@@ -1,0 +1,9 @@
+# Saved latents and rendered output live next to the notebook, but must not be committed:
+# a sweep is ~2 MB per level (tens of MB per run), and it is fully reproducible from the notebook.
+#   levels_*.pt   final checkpoint, written when the run completes
+#   partial_*.pt  written after every rejuvenation sweep, so a preempted run is still usable
+#   *.pt.tmp      the temp file CheckpointingPCNKernel renames from (atomic write)
+*.pt
+*.pt.tmp
+decoded/
+*.png
