@@ -70,15 +70,27 @@ auth_check("black-forest-labs/FLUX.1-dev")
 print("FLUX.1-dev access: OK")
 PREFLIGHT
 
-# --- execute the notebook in place --------------------------------------------------------------
+# --- execute the notebook -----------------------------------------------------------------------
 # nbconvert runs with cwd = the notebook's directory, which is what the notebook's REPO/SWEEP_DIR
-# derivation assumes. --inplace so outputs (the grid, diagnostics) are saved into the notebook.
-echo "=== executing $NB ==="
+# derivation assumes.
+#
+# Deliberately NOT --inplace: that writes the SOURCE notebook, and nbconvert writes once at the very
+# end, so a kill during that write could truncate the only copy. A per-job output file also lets the
+# source stay open in an editor while a job runs.
+#
+# --allow-errors matters just as much: without it, an exception anywhere means nbconvert writes
+# NOTHING -- so a mid-run failure would discard the go/no-go images and diagnostics already produced.
+# The saved notebook keeps the traceback in the failing cell, which is what you want to read.
+OUT="run_${SLURM_JOB_ID:-manual}.ipynb"
+echo "=== executing $NB -> $OUT ==="
 "$PY" -m jupyter nbconvert \
     --to notebook \
     --execute \
-    --inplace \
+    --allow-errors \
+    --output "$OUT" \
     --ExecutePreprocessor.timeout=-1 \
     "$NB"
 
 echo "=== done $(date) ==="
+echo "notebook with outputs: $SWEEP_DIR/$OUT"
+ls -l "$SWEEP_DIR"/*.pt 2>/dev/null || true
