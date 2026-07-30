@@ -19,7 +19,6 @@ from creativity_measure.adaptive_tempering_smc import (
     Kernel, IndependenceKernel, PCNKernel,
     RejuvenationStop, MAX_N_MCMC, MIN_N_MCMC
 )
-from creativity_measure.diffusion_smc import diffusion_smc_sample, DiffusionSMCResult
 from creativity_measure.generators import (
     heun_prob_flow, karras_sigma_schedule, edm_ode_step,
     density_denoiser, density_generator, edm_generator,

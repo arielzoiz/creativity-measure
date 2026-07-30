@@ -40,7 +40,10 @@ Everything else (distances, refsets, generators) is fixed infrastructure that an
    and therefore is not achieving the goal.
 3. **Determinism via a threaded generator.** All randomness comes from a single `torch.Generator(seed)` passed through; never touch global torch RNG.
 4. **`reward.x_refs` pins device and dtype** for the whole run.
-5. **Cost is dominated by $f$ evaluations** (each is $R \times N_{\gamma} \times N_{\epsilon}$ score calls). Count reward calls per particle per level when judging a new sampler.
+5. **Cost is dominated by $f$ evaluations** (each is $N_{\gamma} \times N_{\epsilon} \times B$ score calls on a batch of $B$ — **independent of $R$**:
+   `GlobalIEMDistance` scores each point once per $\gamma$ interval and broadcasts the pairwise differences, and caches the reference
+   scores across calls via `cache_refs=True`). Count reward calls per particle per level when judging a new sampler. With the reward
+   this cheap, $G(z)$ is now a comparable share of a pCN sweep.
 6. Reuse `smc_common.py` (`_ess_from_logw`, `_systematic_resample`) and `generators/base.py` (`karras_sigma_schedule`, `edm_ode_step`, `edm_generator`).
 
 ## Adding a New Sampler

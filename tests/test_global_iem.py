@@ -133,3 +133,82 @@ def test_requires_density_or_score_fn():
     import pytest
     with pytest.raises(ValueError):
         GlobalIEMDistance(None, gammas, num_eps=8, seed=123)
+
+
+# ---------------------------------------------------------------------------
+# Test 6: the batched pairwise reproduces the single-reference oracle, ref by ref
+# ---------------------------------------------------------------------------
+
+def test_batched_matches_looped():
+    """`pairwise` evaluates every point once and broadcasts; `iem_sq_increments_one_to_many`
+    re-evaluates the batch per reference. They must agree column by column."""
+    from creativity_measure.distances.global_iem import iem_sq_increments_one_to_many
+    from creativity_measure.distances.utils import simulate_brownian
+    dist = GlobalIEMDistance(p, gammas, num_eps=8, seed=123)
+    g = gammas.to(device=X.device, dtype=X.dtype)
+    W = simulate_brownian(g, dist.num_eps, X.shape[1], dist.seed, X.device, X.dtype)
+
+    actual = dist.pairwise(X, x_refs)                                  # (B, R)
+    for r in range(x_refs.shape[0]):
+        increments = iem_sq_increments_one_to_many(x_refs[r:r + 1], X, W, g, p)
+        expected = increments.sum(0).mean(0).clamp_min(0).sqrt()       # (B,)
+        assert torch.allclose(actual[:, r], expected), f"column {r} differs"
+
+
+# ---------------------------------------------------------------------------
+# Test 7: r_chunk is a memory knob with no numerical effect
+# ---------------------------------------------------------------------------
+
+def test_chunk_size_is_byte_exact():
+    """The chunked reference loop must be byte-identical across block sizes -- this is exactly
+    what the comment in iem_sq_integral claims. torch.equal, deliberately not allclose."""
+    R = x_refs.shape[0]
+    ref = GlobalIEMDistance(p, gammas, num_eps=8, seed=123, r_chunk=R).pairwise(X, x_refs)
+    for r_chunk in (1, 3, R):
+        out = GlobalIEMDistance(p, gammas, num_eps=8, seed=123, r_chunk=r_chunk).pairwise(X, x_refs)
+        assert torch.equal(out, ref), f"r_chunk={r_chunk} is not byte-identical to r_chunk={R}"
+
+
+# ---------------------------------------------------------------------------
+# Test 8: the reference-score cache changes cost, never values
+# ---------------------------------------------------------------------------
+
+def test_ref_cache_matches_uncached():
+    cached = GlobalIEMDistance(p, gammas, num_eps=8, seed=123, cache_refs=True)
+    plain = GlobalIEMDistance(p, gammas, num_eps=8, seed=123, cache_refs=False)
+    assert torch.equal(cached.pairwise(X, x_refs), plain.pairwise(X, x_refs))
+    # and a warm call must reproduce the cold one exactly
+    first = cached.pairwise(X, x_refs)
+    assert torch.equal(cached.pairwise(X, x_refs), first)
+
+
+# ---------------------------------------------------------------------------
+# Test 9: the score-evaluation counts -- the regression guard for the whole point of the batching
+# ---------------------------------------------------------------------------
+
+def test_denoiser_call_counts():
+    """Exact score rows pushed per pairwise call. These counts, not the runtime, are what the
+    batching + caching buy; a regression here silently restores the O(R*B) denoiser cost."""
+    from creativity_measure.scores import marginal_score
+
+    rows = {"n": 0}
+
+    def counting_score_fn(y, g):
+        rows["n"] += y.shape[0]
+        return marginal_score(y, g, p)
+
+    B, R, n_eps = X.shape[0], x_refs.shape[0], 8
+    steps = gammas.shape[0] - 1                      # left-endpoint rule over N_gamma-1 intervals
+    dist = GlobalIEMDistance(None, gammas, num_eps=n_eps, seed=123, score_fn=counting_score_fn)
+
+    rows["n"] = 0
+    dist.pairwise(X, x_refs)
+    assert rows["n"] == steps * n_eps * (R + B), "cold call should evaluate refs + batch once each"
+
+    rows["n"] = 0
+    dist.pairwise(X, x_refs)
+    assert rows["n"] == steps * n_eps * B, "warm call should evaluate the batch only"
+
+    rows["n"] = 0
+    dist.pairwise(x_refs, x_refs)
+    assert rows["n"] == 0, "the refs-vs-refs normalizer should be fully served by the cache"
