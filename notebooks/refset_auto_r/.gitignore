@@ -1,0 +1,4 @@
+# Diagnostic outputs are regenerable; the summary plot is worth keeping.
+*.pt
+*.pt.tmp
+*.json
