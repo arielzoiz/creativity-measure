@@ -1,0 +1,171 @@
+{
+  "verdict": {
+    "phase_a_empty_card": {
+      "largest_ok": 128,
+      "smallest_oom": 192
+    },
+    "phase_b_with_bank": {
+      "largest_ok": 128,
+      "smallest_oom": 192
+    },
+    "rows_needed_for_ref_bank": 192,
+    "chunking_required": true,
+    "bank_gb": 1.359,
+    "model_gb": 22.34,
+    "gpu": "NVIDIA RTX A6000",
+    "total_gb": 47.5,
+    "model_load_s": 39.7
+  },
+  "results": [
+    {
+      "rows": 24,
+      "phase": "PHASE A: empty card",
+      "status": "ok",
+      "peak_gb": 25.945,
+      "free_gb": 17.202,
+      "sec": 6.21,
+      "s_per_row": 0.2589,
+      "out_shape": [
+        24,
+        16,
+        64,
+        64
+      ]
+    },
+    {
+      "rows": 48,
+      "phase": "PHASE A: empty card",
+      "status": "ok",
+      "peak_gb": 29.546,
+      "free_gb": 9.573,
+      "sec": 11.8,
+      "s_per_row": 0.2458,
+      "out_shape": [
+        48,
+        16,
+        64,
+        64
+      ]
+    },
+    {
+      "rows": 96,
+      "phase": "PHASE A: empty card",
+      "status": "ok",
+      "peak_gb": 36.749,
+      "free_gb": 3.948,
+      "sec": 24.09,
+      "s_per_row": 0.2509,
+      "out_shape": [
+        96,
+        16,
+        64,
+        64
+      ]
+    },
+    {
+      "rows": 128,
+      "phase": "PHASE A: empty card",
+      "status": "ok",
+      "peak_gb": 41.55,
+      "free_gb": 3.366,
+      "sec": 33.4,
+      "s_per_row": 0.261,
+      "out_shape": [
+        128,
+        16,
+        64,
+        64
+      ]
+    },
+    {
+      "rows": 192,
+      "phase": "PHASE A: empty card",
+      "status": "OOM",
+      "error": "CUDA out of memory. Tried to allocate 3.38 GiB. GPU 0 has a total capacity of 47.53 GiB of which 2.77 GiB is free. Including non-PyTorch memory, this process has 44.76 GiB memory in use. Of the alloca"
+    },
+    {
+      "rows": 24,
+      "phase": "PHASE B: holding the reference bank (the real condition)",
+      "status": "ok",
+      "peak_gb": 27.304,
+      "free_gb": 15.819,
+      "sec": 6.01,
+      "s_per_row": 0.2502,
+      "out_shape": [
+        24,
+        16,
+        64,
+        64
+      ]
+    },
+    {
+      "rows": 48,
+      "phase": "PHASE B: holding the reference bank (the real condition)",
+      "status": "ok",
+      "peak_gb": 30.905,
+      "free_gb": 8.179,
+      "sec": 12.05,
+      "s_per_row": 0.2511,
+      "out_shape": [
+        48,
+        16,
+        64,
+        64
+      ]
+    },
+    {
+      "rows": 96,
+      "phase": "PHASE B: holding the reference bank (the real condition)",
+      "status": "ok",
+      "peak_gb": 38.108,
+      "free_gb": 2.319,
+      "sec": 24.46,
+      "s_per_row": 0.2548,
+      "out_shape": [
+        96,
+        16,
+        64,
+        64
+      ]
+    },
+    {
+      "rows": 128,
+      "phase": "PHASE B: holding the reference bank (the real condition)",
+      "status": "ok",
+      "peak_gb": 42.909,
+      "free_gb": 0.632,
+      "sec": 33.64,
+      "s_per_row": 0.2628,
+      "out_shape": [
+        128,
+        16,
+        64,
+        64
+      ]
+    },
+    {
+      "rows": 192,
+      "phase": "PHASE B: holding the reference bank (the real condition)",
+      "status": "OOM",
+      "error": "CUDA out of memory. Tried to allocate 3.38 GiB. GPU 0 has a total capacity of 47.53 GiB of which 2.32 GiB is free. Including non-PyTorch memory, this process has 45.20 GiB memory in use. Of the alloca"
+    }
+  ],
+  "args": {
+    "widths": [
+      24,
+      48,
+      96,
+      128,
+      192,
+      256
+    ],
+    "n_gamma": 30,
+    "num_eps": 3,
+    "R": 64,
+    "img": 512,
+    "guidance": 1.5,
+    "prompt": "A dog",
+    "timeout": 900,
+    "out": "probe_denoiser_batch.json"
+  }
+}
