@@ -65,6 +65,11 @@ class LevelSnapshot:
         ancestors: (N,) long — for particle ``i``, the index of its parent in the *previous* snapshot's
                    ``X``. ``arange(N)`` on levels that skipped resampling. Walk it backwards to trace one
                    particle's lineage across λ_eff.
+        ess:       the level's ESS (post-reweight, pre-resample), i.e. ``ess_history[k-1]``. Carried per
+                   snapshot so a level is self-describing: ``logw`` above is zeros whenever the level
+                   resampled, so it cannot be re-derived from the snapshot alone. ``nan`` on the β=0
+                   entry (no reweight has happened) and on snapshots restored from checkpoints written
+                   before this field existed.
     """
 
     beta: float
@@ -73,6 +78,7 @@ class LevelSnapshot:
     fX: Float[Tensor, "N"]
     logw: Float[Tensor, "N"]
     ancestors: Tensor
+    ess: float = float("nan")
 
 
 @dataclass
@@ -172,6 +178,9 @@ class _State:
     X: Tensor                                   # (N, d) particles in data space
     fX: Tensor                                  # (N,)   reward f(X)
     logw: Tensor                                # (N,)   unnormalized log-weights
+    # Post-reweight ESS of the level currently being run, set in ``_run_smc`` before resampling.
+    # ``nan`` until the first reweight (the β=0 cloud has uniform weights by construction).
+    ess: float = float("nan")
     aux: dict[str, Tensor] = field(default_factory=dict)   # kernel-specific (e.g. latent Z for pCN)
 
 
@@ -378,6 +387,7 @@ def _snapshot(
     return LevelSnapshot(
         beta=beta, lam_eff=beta * lam,
         X=keep(state.X), fX=keep(state.fX), logw=keep(state.logw), ancestors=keep(ancestors),
+        ess=state.ess,
     )
 
 
@@ -463,7 +473,8 @@ def _run_smc(
         #   π_β ∝ p·exp(βλf), so the incremental weight is π_{β+dβ}/π_β = exp(dβ·λ·f(x)).
         #   p cancels, making the update exact and gradient-free. state.fX matches state.X (kernel.step refreshes it, reorder permutes it).
         state.logw = state.logw + dbeta * lam * state.fX
-        ess = _ess_from_logw(state.logw)
+        #   Recorded on the state as well as in the history, before `logw` is zeroed due to resampling.
+        state.ess = ess = _ess_from_logw(state.logw)
         betas.append(beta)
         ess_history.append(ess)
 
