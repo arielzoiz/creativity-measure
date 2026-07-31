@@ -5,7 +5,7 @@ from creativity_measure.device import (
 from creativity_measure.distances import (
     Distance, LpDistance, LocalIEMDistance,
     GlobalIEMDistance, SquaredGlobalIEMDistance,
-    GeneralizedGlobalIEMDistance, IEMFType, edm_score_fn,
+    GeneralizedGlobalIEMDistance, IEMFType, edm_score_fn, chunked_denoiser,
 )
 from creativity_measure.tilt import (
     expected_distance, reference_pair_mean, tilted_log_density, grid_normalize,

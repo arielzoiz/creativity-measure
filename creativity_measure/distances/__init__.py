@@ -6,4 +6,4 @@ from creativity_measure.distances.generalized_global_iem import (
     GeneralizedGlobalIEMDistance,
     IEMFType,
 )
-from creativity_measure.distances.edm_adapter import edm_score_fn
+from creativity_measure.distances.edm_adapter import chunked_denoiser, edm_score_fn

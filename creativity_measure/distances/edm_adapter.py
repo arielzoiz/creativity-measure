@@ -12,6 +12,7 @@
 
 from collections.abc import Callable
 
+import torch
 from jaxtyping import Float
 from torch import Tensor
 
@@ -29,6 +30,41 @@ def gamma_to_sigma(gamma: Tensor) -> Tensor:
 def sigma_to_gamma(sigma: Tensor) -> Tensor:
     """gamma-convention precision from the EDM noise scale:  gamma = 1 / sigma^2."""
     return 1.0 / (sigma * sigma)
+
+
+def chunked_denoiser(denoiser: Denoiser, max_rows: int) -> Denoiser:
+    """Bound a denoiser's batch width to ``max_rows``, splitting wider calls into sequential blocks.
+
+    Since we use reference-score caching, R (reference set size) is a batch dimension rather than a
+    loop counter, so raising R raises the width of a single forward pass. Thefore, use of high R is
+    expected to cause OOMs on GPUs with limited VRAM.
+
+    Rows of a denoiser batch are independent (no cross-batch attention), so splitting is
+    mathematically identical -- this is purely a VRAM ceiling, like ``global_iem``'s ``r_chunk``.
+
+    Wrap ONCE and pass the result to BOTH ``edm_generator`` and ``edm_score_fn``: that covers the
+    generator path and every score path, including the reference ``score_bank`` build, which is the
+    widest call in a run.
+
+    ``max_rows`` must be FIXED for a run. ``Reward`` requires f to be a deterministic function of x.
+    """
+    if max_rows < 1:
+        raise ValueError(f"max_rows must be >= 1, got {max_rows}")
+
+    def chunked(x: Tensor, sigma: Tensor) -> Tensor:
+        b = x.shape[0]
+        if b <= max_rows:
+            return denoiser(x, sigma)
+        # sigma arrives as (B,) from both callers (edm_score_fn expands it; edm_ode_step passes
+        # s.expand(b)), but tolerate a scalar so any Denoiser honouring the protocol can be wrapped.
+        batched = isinstance(sigma, Tensor) and sigma.ndim >= 1 and sigma.shape[0] == b
+        return torch.cat(
+            [denoiser(x[i:i + max_rows], sigma[i:i + max_rows] if batched else sigma)
+             for i in range(0, b, max_rows)],
+            dim=0,
+        )
+
+    return chunked
 
 
 def edm_score_fn(denoiser: Denoiser, img_shape: tuple[int, ...] | None = None) -> ScoreFn:
