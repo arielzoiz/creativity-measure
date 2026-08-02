@@ -1,0 +1,6 @@
+[    0.0 min] START phase=refs tag=a3_1 job=700483 gpu=NVIDIA L40S
+[    0.5 min] flow map weights loaded; score ready (denoiser capped at 24 rows)
+[    1.0 min] PHASE 1 GATE PASSED  latent_std=1.0345 (base FLUX 1.0150)  denoise-vs-map gap=0.1660  s/row=0.231
+[   25.3 min] reward built: refs (64, 65536)  S=1.0606  gamma=[0.889, 1.02e+03] x 30   ref bank 19.1 min
+[   34.9 min] lambda_s = 1/std_p(f) = 140.093  (E_p[f] = 1.0062 +- 0.0071)
+[   34.9 min] DONE phase=refs  total wall clock 0.58 h  completed m values: []

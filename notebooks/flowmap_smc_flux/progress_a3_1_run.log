@@ -1,0 +1,60 @@
+[    0.0 min] START phase=run tag=a3_1 job=700517 gpu=NVIDIA L40S
+[    0.9 min] flow map weights loaded; score ready (denoiser capped at 24 rows)
+[    1.4 min] PHASE 1 GATE PASSED  latent_std=1.0345 (base FLUX 1.0150)  denoise-vs-map gap=0.1660  s/row=0.235
+[   20.5 min] reward built: refs (64, 65536)  S=1.0606  gamma=[0.889, 1.02e+03] x 30   ref bank 19.1 min
+[   20.5 min] lambda_s LOADED from lam_s_R64_seed7.json: 140.093  (E_p[f] = 1.0062 +- 0.0071, f(refs) = 0.9844)
+[   20.5 min] === m=3  lambda=420.28  (lambda_s=140.09)  M=8 K=4 N=16 eta=1.5 guid_window=(0.1, 0.9) ===
+[   20.5 min]   m=3 step 1/16 t=0.0625  ESS/M=1.00  uniq/M=1.00  f=nan  0.0 min into this m
+[   30.3 min]   m=3 step 2/16 t=0.1250  ESS/M=0.13  uniq/M=0.12  f=0.9217  9.9 min into this m
+[   40.1 min]   m=3 step 3/16 t=0.1875  ESS/M=0.13  uniq/M=0.12  f=0.9518  19.7 min into this m
+[   49.9 min]   m=3 step 4/16 t=0.2500  ESS/M=0.18  uniq/M=0.12  f=0.9918  29.5 min into this m
+[   59.7 min]   m=3 step 5/16 t=0.3125  ESS/M=0.27  uniq/M=0.12  f=1.0069  39.3 min into this m
+[   69.5 min]   m=3 step 6/16 t=0.3750  ESS/M=0.35  uniq/M=0.12  f=1.0238  49.1 min into this m
+[   79.3 min]   m=3 step 7/16 t=0.4375  ESS/M=0.17  uniq/M=0.12  f=1.0301  58.9 min into this m
+[   89.2 min]   m=3 step 8/16 t=0.5000  ESS/M=0.60  uniq/M=0.12  f=1.0431  68.7 min into this m
+[   99.0 min]   m=3 step 9/16 t=0.5625  ESS/M=0.43  uniq/M=0.12  f=1.0459  78.6 min into this m
+[  108.8 min]   m=3 step 10/16 t=0.6250  ESS/M=0.18  uniq/M=0.12  f=1.0419  88.3 min into this m
+[  118.6 min]   m=3 step 11/16 t=0.6875  ESS/M=0.54  uniq/M=0.12  f=1.0393  98.1 min into this m
+[  128.3 min]   m=3 step 12/16 t=0.7500  ESS/M=0.80  uniq/M=0.12  f=1.0306  107.8 min into this m
+[  138.0 min]   m=3 step 13/16 t=0.8125  ESS/M=0.60  uniq/M=0.12  f=1.0178  117.6 min into this m
+[  147.8 min]   m=3 step 14/16 t=0.8750  ESS/M=0.57  uniq/M=0.12  f=1.0052  127.3 min into this m
+[  147.8 min]   m=3 step 15/16 t=0.9375  ESS/M=1.00  uniq/M=0.12  f=nan  127.3 min into this m
+[  150.2 min]   m=3 step 16/16 t=1.0000  ESS/M=0.84  uniq/M=0.12  f=1.0001  129.7 min into this m
+[  150.2 min] m=3 COMPLETED in 129.7 min (2.16 h)  vs projected 2.17 h   saved -> result_N8_K4_m3_seed101_a3_1.pt
+[  150.2 min] === m=2  lambda=280.19  (lambda_s=140.09)  M=8 K=4 N=16 eta=1.5 guid_window=(0.1, 0.9) ===
+[  150.2 min]   m=2 step 1/16 t=0.0625  ESS/M=1.00  uniq/M=1.00  f=nan  0.0 min into this m
+[  160.0 min]   m=2 step 2/16 t=0.1250  ESS/M=0.13  uniq/M=0.25  f=0.9217  9.8 min into this m
+[  169.7 min]   m=2 step 3/16 t=0.1875  ESS/M=0.13  uniq/M=0.12  f=0.9496  19.5 min into this m
+[  179.5 min]   m=2 step 4/16 t=0.2500  ESS/M=0.32  uniq/M=0.12  f=0.9905  29.3 min into this m
+[  189.3 min]   m=2 step 5/16 t=0.3125  ESS/M=0.39  uniq/M=0.12  f=1.0077  39.1 min into this m
+[  199.1 min]   m=2 step 6/16 t=0.3750  ESS/M=0.44  uniq/M=0.12  f=1.0200  48.9 min into this m
+[  208.8 min]   m=2 step 7/16 t=0.4375  ESS/M=0.45  uniq/M=0.12  f=1.0258  58.6 min into this m
+[  218.6 min]   m=2 step 8/16 t=0.5000  ESS/M=0.60  uniq/M=0.12  f=1.0340  68.4 min into this m
+[  228.5 min]   m=2 step 9/16 t=0.5625  ESS/M=0.68  uniq/M=0.12  f=1.0428  78.2 min into this m
+[  238.2 min]   m=2 step 10/16 t=0.6250  ESS/M=0.83  uniq/M=0.12  f=1.0407  88.0 min into this m
+[  248.0 min]   m=2 step 11/16 t=0.6875  ESS/M=0.64  uniq/M=0.12  f=1.0369  97.8 min into this m
+[  257.7 min]   m=2 step 12/16 t=0.7500  ESS/M=0.47  uniq/M=0.12  f=1.0253  107.5 min into this m
+[  267.5 min]   m=2 step 13/16 t=0.8125  ESS/M=0.63  uniq/M=0.12  f=1.0155  117.3 min into this m
+[  277.3 min]   m=2 step 14/16 t=0.8750  ESS/M=0.93  uniq/M=0.12  f=1.0083  127.1 min into this m
+[  277.3 min]   m=2 step 15/16 t=0.9375  ESS/M=1.00  uniq/M=0.12  f=nan  127.1 min into this m
+[  279.7 min]   m=2 step 16/16 t=1.0000  ESS/M=0.95  uniq/M=0.12  f=1.0065  129.5 min into this m
+[  279.7 min] m=2 COMPLETED in 129.5 min (2.16 h)  vs projected 2.17 h   saved -> result_N8_K4_m2_seed101_a3_1.pt
+[  279.7 min] === m=1  lambda=140.09  (lambda_s=140.09)  M=8 K=4 N=16 eta=1.5 guid_window=(0.1, 0.9) ===
+[  279.8 min]   m=1 step 1/16 t=0.0625  ESS/M=1.00  uniq/M=1.00  f=nan  0.0 min into this m
+[  289.6 min]   m=1 step 2/16 t=0.1250  ESS/M=0.25  uniq/M=0.38  f=0.9217  9.9 min into this m
+[  299.4 min]   m=1 step 3/16 t=0.1875  ESS/M=0.50  uniq/M=0.38  f=0.9456  19.7 min into this m
+[  309.2 min]   m=1 step 4/16 t=0.2500  ESS/M=0.46  uniq/M=0.38  f=0.9611  29.5 min into this m
+[  319.0 min]   m=1 step 5/16 t=0.3125  ESS/M=0.83  uniq/M=0.38  f=0.9783  39.3 min into this m
+[  328.9 min]   m=1 step 6/16 t=0.3750  ESS/M=0.64  uniq/M=0.25  f=0.9935  49.1 min into this m
+[  338.7 min]   m=1 step 7/16 t=0.4375  ESS/M=0.92  uniq/M=0.25  f=1.0060  58.9 min into this m
+[  348.5 min]   m=1 step 8/16 t=0.5000  ESS/M=0.87  uniq/M=0.25  f=1.0174  68.8 min into this m
+[  358.3 min]   m=1 step 9/16 t=0.5625  ESS/M=0.79  uniq/M=0.12  f=1.0267  78.6 min into this m
+[  368.1 min]   m=1 step 10/16 t=0.6250  ESS/M=0.95  uniq/M=0.12  f=1.0314  88.4 min into this m
+[  378.0 min]   m=1 step 11/16 t=0.6875  ESS/M=0.94  uniq/M=0.12  f=1.0306  98.2 min into this m
+[  387.8 min]   m=1 step 12/16 t=0.7500  ESS/M=0.96  uniq/M=0.12  f=1.0263  108.0 min into this m
+[  397.6 min]   m=1 step 13/16 t=0.8125  ESS/M=0.93  uniq/M=0.12  f=1.0202  117.8 min into this m
+[  407.3 min]   m=1 step 14/16 t=0.8750  ESS/M=0.97  uniq/M=0.12  f=1.0138  127.6 min into this m
+[  407.4 min]   m=1 step 15/16 t=0.9375  ESS/M=1.00  uniq/M=0.12  f=nan  127.6 min into this m
+[  409.8 min]   m=1 step 16/16 t=1.0000  ESS/M=0.99  uniq/M=0.12  f=1.0125  130.0 min into this m
+[  409.8 min] m=1 COMPLETED in 130.0 min (2.17 h)  vs projected 2.17 h   saved -> result_N8_K4_m1_seed101_a3_1.pt
+[  417.0 min] DONE phase=run  total wall clock 6.95 h  completed m values: [1.0, 2.0, 3.0]
