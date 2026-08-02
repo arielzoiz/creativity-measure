@@ -1,0 +1,11 @@
+# Saved latents and rendered output live next to the notebook, but must not be committed: they are
+# fully reproducible from the notebook plus the (LABEL, CFG_SCALE, seed) recorded in its Takeaways.
+#   results_*.pt      final particles, weights and per-step diagnostics for every lambda in a sweep
+#   grid_*.png        decoded sample grid
+#   diagnostics_*.png ESS / uniq / mean-f curves
+# `run_<jobid>.ipynb` is deliberately NOT ignored -- the executed notebook IS the experiment record,
+# matching notebooks/flux_lambda_sweep/.
+*.pt
+*.pt.tmp
+*.png
+__pycache__/
