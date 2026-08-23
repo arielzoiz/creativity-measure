@@ -1,5 +1,5 @@
 #!/bin/sh
-#SBATCH --job-name=flowmap-smc
+#SBATCH --job-name=flowmap-normv
 #SBATCH --output=/home/dcor/arielzoizner/logs/%x-%j.out
 #SBATCH --error=/home/dcor/arielzoizner/logs/%x-%j.err
 #SBATCH --partition=killable
@@ -13,7 +13,9 @@
 #SBATCH --mem=64000
 #SBATCH --gpus=1
 #
-# Algorithm 3 -- SMC weighted flow maps on the FLUX.1-dev flow map.
+# Algorithm 3 BRANCH 2 -- the Z-SCORED twist (use_full_normalized_v=True), run in parallel with
+# the branch-1 sweep in ../flowmap_smc_flux. Reuses that run's references and lambda_s verbatim
+# (same p, same frozen reward), so the two are directly comparable.
 #
 # PHASES. One notebook serves the whole execution order; STOP_AFTER picks how far it goes, and each
 # phase caches to disk so a later job loads what an earlier one built. Submit in this order:
@@ -71,8 +73,8 @@ set -e
 WORK=/home/dcor/arielzoizner
 REPO=$WORK/projects/creativity-measure
 PY=$WORK/miniconda3/envs/creativity-measure/bin/python
-RUN_DIR=$REPO/notebooks/flowmap_smc_flux
-NB=flowmap_smc_flux.ipynb
+RUN_DIR=$REPO/notebooks/flowmap_smc_flux_normv
+NB=flowmap_smc_normv.ipynb
 
 # $WORK is group-readable, so the HF *credential* must not live there; the 32 G of weights may.
 export HF_HOME="$WORK/.cache/huggingface"
@@ -83,19 +85,18 @@ export MPLCONFIGDIR="$WORK/.config/matplotlib"     # else matplotlib writes into
 export TOKENIZERS_PARALLELISM=false
 
 export STOP_AFTER="${STOP_AFTER:-run}"
-export RUN_TAG="${RUN_TAG:-a3_1}"
-# Most-important-first: every m costs the same and the notebook stops as soon as one does not fit the
-# remaining budget, so whatever gets dropped should be the least informative value. a3_1 ordered 3,2,1
-# and collapsed at EVERY m, so the priority is now getting any non-degenerate sample -- the mildest
-# tilt is likeliest to give one, hence m=1 first.
-# NOTE: `sbatch --export` splits on commas, so a list CANNOT be passed that way -- `M_LIST=3,2,1` there
-# parses as three separate assignments. Override with `export M_LIST=... ; sbatch ...` instead.
-export M_LIST="${M_LIST:-1,2,3}"
+export RUN_TAG="${RUN_TAG:-nv_1}"
+# BRANCH 2 sweeps lam_tilde (the O(1) Z-scored-reward knob), NOT lam. In this branch lam enters only
+# the terminal update, so the trajectory is lam-independent and sweeping lam would re-run identical
+# trajectories -- the notebook instead recovers every lam's terminal weight in post-processing for free.
+# {1, 2, 4} spans balanced -> reward-dominated -> nearly max_k (see the notebook for the saturation
+# table). NOTE: `sbatch --export` splits on commas, so this list cannot be passed that way.
+export LAMN_LIST="${LAMN_LIST:-1,2,4}"
 
 mkdir -p "$WORK/logs" "$MPLCONFIGDIR"
 cd "$RUN_DIR"          # the notebook derives REPO from cwd ("../..") and writes results here
 
-echo "=== $(date) on $(hostname)  STOP_AFTER=$STOP_AFTER  M_LIST=$M_LIST  RUN_TAG=$RUN_TAG ==="
+echo "=== $(date) on $(hostname)  STOP_AFTER=$STOP_AFTER  LAMN_LIST=$LAMN_LIST  RUN_TAG=$RUN_TAG ==="
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1
 
 # Preflight: fail in seconds, not after minutes of model loading. A baseline run once died here in 29 s

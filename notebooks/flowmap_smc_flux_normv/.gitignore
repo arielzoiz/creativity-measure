@@ -1,0 +1,4 @@
+# Latents and per-image PNGs are regenerable and large; the summary grid is worth keeping.
+*.pt
+*.pt.tmp
+decoded/

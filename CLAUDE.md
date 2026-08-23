@@ -44,6 +44,10 @@ Everything else (distances, refsets, generators) is fixed infrastructure that an
    `GlobalIEMDistance` scores each point once per $\gamma$ interval and broadcasts the pairwise differences, and caches the reference
    scores across calls via `cache_refs=True`). Count reward calls per particle per level when judging a new sampler. With the reward
    this cheap, $G(z)$ is now a comparable share of a pCN sweep.
+   *"Independent of $R$" holds per call, after the bank exists.* Building it is $O(R)$ — $(N_{\gamma}-1) N_{\epsilon} R$ score rows, 19.1 min at $R = 64$ on an L40S —
+   and is re-paid **every job**, because only the reference latents are persisted, not the `score_bank`. Persisting the bank (1.46 GB at $R = 64$, keyed on the
+   base process plus `gammas` / `num_eps` / `dist_seed`) is the standing optimization; it also takes the model out of the chain for the scores, which is what
+   broke job 697271 when a GPU change shifted $f$ by 16% of $\operatorname{std}_{p}(f)$.
 6. Reuse `smc_common.py` (`_ess_from_logw`, `_systematic_resample`) and `generators/base.py` (`karras_sigma_schedule`, `edm_ode_step`, `edm_generator`).
 
 ## Adding a New Sampler
@@ -59,6 +63,22 @@ way to tell whether the run worked. Export from `__init__.py`, add tests under `
 - **Choosing $\lambda$.** Bracket with the scale unit $\lambda_{s} = 1 / \operatorname{std}_{p}(f_{2})$ (or the older data-derived $\lambda_{0} = \operatorname{std}(\log p) / \operatorname{std}(f)$ at
   the refs) and sweep $m \cdot \lambda_{s}$ for $m \in \{1, 2, 3\}$; then **select the largest $\lambda$ whose ensemble diversity (`uniq/N`, min per-level ESS/N) stays above ~0.5**.
   Novelty $E_{q}[f]$ rises forever, so it is *not* the stopping signal — degeneracy is. (`normalized_squared_iem_tilt.ipynb`.)
+  The "rises forever" half is measured on the pCN line only — on the Algorithm 3 flow-map path $E_{q}[f]$ stayed at or below $E_{p}[f]$ at every $m$ (a3_1, a3_2).
+- **$\lambda_{s}$ is an anchor, not a measurement.** Measure once on a held-out batch, cache it, never chase precision: at $n_{\text{heldout}} = 32$ it carries
+  $\pm 13\%$ ($1/\sqrt{2(n-1)}$), which changes no decision since selection is on in-run `uniq/N` / ESS and the $m$ sweep spans $3\times$.
+  **But never eyeball $\lambda$** — $f$ has a CV of $0.7\%$, so $\lambda \sim 1$–$10$ is inert and the working scale ($\approx 140$) is invisible without the measurement.
+- **References: $R = 64$, `RandomRefs`, uniform weights.** Independent-draw $\tau = 0.960$ at $d = 65536$, on a plateau for $R \ge 32$ ($\tau$-SE $= 0.060$).
+  **Never use `RefSelector.select(None)`** — its nested-$\tau$ rule is biased $+0.211$ at $R = 4$ and stops there, i.e. worst exactly where it stops.
+  `WeightedFPSRefs` degenerates to $R_{\text{eff}} = 1.22$ of 4 because $D^{2}_{IEM}$ between FLUX latents concentrates within a few percent — coverage selection has no gradient to follow.
+  Raising $R$ buys *scale* stability only ($\operatorname{SE}(f)/\operatorname{std}_{p}(f) \approx 0.65/\sqrt{R}$), never rank stability, and is not the binding error. (`notebooks/refset_auto_r/`.)
+- **$f(\text{refs}) = (R-1)/R$ exactly** (uniform weights): the numerator averages $R$ terms including the zero self-pair, `reference_pair_mean` divides by $R(R-1)$.
+  Free assert (the bank is already cached, so it costs no score rows) — but use tolerance `1e-3`, not `0.10`, which cannot separate $63/64$ from the failure modes that land on exactly $1.0$.
+  It tests **normalization wiring only**: `GlobalIEMDistance.pairwise` aliases `batch_scores` to `ref_scores` when `X is x_refs`, so the zero diagonal is bitwise-free and proves nothing about score-field determinism.
+- **An ESS history is only interpretable relative to the `ess_threshold` that generated it** — a threshold of 1.0 zeroes $U$ every step, so each reading is a single telescoped
+  increment, not accumulated weight. Report `uniq/N` for degeneracy and pairwise latent distance for what the images are; never `n_distinct` alone. (a3_1, a3_2.)
+- **Algorithm 3's ESS-triggered resampling degenerates the cloud** at $M = 8$ for every $m \in \{1,2,3\}$ under thresholds 1.0 *and* 0.5, and on both the plain and Z-scored potentials.
+  `uniq/N` is monotone non-increasing — systematic resampling only destroys lineages and nothing regenerates them, so the threshold sets the rate of an inevitable collapse.
+  This is a mechanism defect, not a tuning problem. (`notebooks/flowmap_smc_flux/`.)
 - **SMC cannot escape the generator manifold** — particles are $x = G(z)$, so its target stays proper even where the literal grid $q_{\lambda}$ diverges.
   This is a feature, and it differs from the toy-2D-grid version, that allows the distribution to drift of the grid.
 
@@ -67,7 +87,8 @@ way to tell whether the run worked. Export from `__init__.py`, add tests under `
 - `distances/` — IEM variants (`GlobalIEMDistance`, `SquaredGlobalIEMDistance`, `GeneralizedGlobalIEMDistance` with $f$ = identity/squared, `LocalIEMDistance`, `LpDistance`),
   plus `edm_adapter.py` (`Denoiser` → `score_fn` via Tweedie).
 - `refset/` — reference selectors (`RandomRefs`, `FPSRefs`, `WeightedFPSRefs`) with auto-$R$ by a weighted-$\tau$ rank-stability rule; `.reward(R)` / `.normalized_reward(R)`
-  produce the frozen reward.
+  produce the frozen reward. **The auto-$R$ rule is biased at high $d$ and the FPS selectors degenerate there** — use `RandomRefs` with an explicit $R$ (currently $R = 64$);
+  see Established Findings and `notebooks/refset_auto_r/`.
 - `generators/` — $G: z \mapsto x$ via the EDM probability-flow ODE, so $G(N(0,I)) \approx p$ (`toy_2d`, `edm_pixel`, `tiny_sd`, `flux`).
 - `tilt.py` — rewards; `density.py` — $p$ as `log_p_X` / `log_p_Y` / sampler.
 - `creative_sampling_flow.ipynb` (repo root) — the end-to-end algorithm spec + API sketch.

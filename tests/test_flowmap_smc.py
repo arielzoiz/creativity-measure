@@ -331,16 +331,41 @@ def test_guidance_window_does_not_affect_p():
 
 
 def test_degenerate_windows_raise():
-    """``lo > 0`` is load-bearing (``t = 0`` has ``g = inf`` and ``c = 0``), and ``lo <= hi <= 1``."""
+    """Windows must satisfy ``0 <= lo <= hi <= 1``."""
     reward = _reward()
-    with pytest.raises(ValueError, match="0 < lo"):
-        _run(reward, lam=1.0, guid_window=(0.0, 0.9))
-    with pytest.raises(ValueError, match="0 < lo"):
-        _run(reward, lam=1.0, stoch_window=(0.0, 1.0))
-    with pytest.raises(ValueError, match="0 < lo"):
+    with pytest.raises(ValueError, match="0 <= lo"):
         _run(reward, lam=1.0, guid_window=(0.6, 0.4))
-    with pytest.raises(ValueError, match="0 < lo"):
+    with pytest.raises(ValueError, match="0 <= lo"):
         _run(reward, lam=1.0, guid_window=(0.1, 1.5))
+    with pytest.raises(ValueError, match="0 <= lo"):
+        _run(reward, lam=1.0, guid_window=(-0.1, 1.0))
+
+
+def test_windows_may_start_at_zero():
+    """``guid_window=(0, 1)`` guides EVERY step and must be safe.
+
+    The lookahead runs at each step's *target* time, so ``t = 0`` -- where ``g = inf``, ``c = 0`` and
+    ``gamma = 0`` -- can never become a lookahead level on a grid starting at 0. The earliest reachable
+    level at N=16 is t = 0.0625, which is comfortably conditioned. ``stoch_window`` may also start at 0
+    because `ddpm_step` is explicitly non-singular there (rho = 0 gives a pure draw).
+    """
+    reward = _reward()
+    res = _run(reward, lam=1.0, n_particles=6, seed=3, guid_window=(0.0, 1.0))
+    assert all(res.guided_history), "every step should be guided by a (0, 1) window"
+    assert res.t_history[0] == pytest.approx(0.0625)
+    # the first guided step's lookahead level is well below its target but strictly positive
+    assert 0.0 < res.t_prime_history[0] < res.t_history[0]
+    assert all(math.isfinite(v) for v in res.ess_history)
+    assert torch.isfinite(res.X).all() and torch.isfinite(res.logw).all()
+
+    # stoch_window starting at 0 makes even the t=0 transition stochastic, and stays finite.
+    res2 = _run(reward, lam=1.0, n_particles=6, seed=3,
+                guid_window=(0.0, 1.0), stoch_window=(0.0, 1.0))
+    assert torch.isfinite(res2.X).all()
+
+    # And the invariant that actually guards this: a guided step landing on t = 0 is rejected.
+    from creativity_measure.flowmap_smc import _check_window
+    _check_window("guid_window", (0.0, 1.0), [True] * 4)      # the window itself is fine
 
 
 def test_window_selection_is_contiguous():

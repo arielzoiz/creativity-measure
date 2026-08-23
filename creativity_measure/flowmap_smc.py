@@ -408,12 +408,24 @@ def _in_window(t: float, window: tuple[float, float]) -> bool:
 
 
 def _check_window(name: str, window: tuple[float, float], flags: list[bool]) -> None:
-    """A window must be a nonempty sub-interval of ``(0, 1]`` selecting a *contiguous* run of steps.
+    """A window must be a nonempty sub-interval of ``[0, 1]`` selecting a *contiguous* run of steps.
 
-    ``guid_window[0] > 0`` and ``stoch_window[0] > 0`` are asserted because ``t = 0`` is degenerate:
-    ``g(0) = sigma^2/alpha^2 = inf``, so ``t'`` is undefined, and ``_score_at``'s ``c = alpha_t/sigma_t^2``
-    is 0 with ``gamma = 0`` (``sigma_EDM = inf`` inside ``edm_score_fn``). Symmetrically ``t = 1`` is only
-    ever a step *target*, never a source.
+    ``t = 0`` IS degenerate -- ``g(0) = sigma^2/alpha^2 = inf``, so ``t'`` is undefined, and
+    ``_score_at``'s ``c = alpha_t/sigma_t^2`` is 0 with ``gamma = 0`` (``sigma_EDM = inf`` inside
+    ``edm_score_fn``). But a lower bound of 0 is nonetheless safe, and the windows are allowed to start
+    there, because **neither window can ever put ``t = 0`` in a degenerate position**:
+
+    * ``guid_window`` is evaluated on each step's *target* ``ts[n+1]``, which is the level the lookahead
+      runs at. On any valid grid that is at least ``ts[1] > 0``, so ``t = 0`` never becomes a lookahead
+      level however wide the window is. (At ``N = 16`` the earliest is ``t = 0.0625``, where
+      ``t' = 0.0516``, ``c = 0.057``, ``gamma = 0.0030`` and the renoise variance is 0.30 -- all
+      comfortably conditioned.) The caller-facing invariant is asserted below.
+    * ``stoch_window`` is evaluated on each step's *source* ``ts[n]``, which can be 0 -- but the only
+      thing it selects there is a `TransitionStep`, and ``ddpm_step`` is explicitly non-singular at
+      ``t = 0`` (``rho = 0``, giving the pure draw ``alpha_{t'} z_hat + sigma_{t'} eps``). Its one pole
+      is ``sigma_t = 0`` at ``t = 1``, which is never a source.
+
+    Symmetrically ``t = 1`` is only ever a step *target*, never a source.
 
     Contiguity matters for guidance: a *deterministic* step between two guided ones would carry
     resampled clones into a lookahead that scores them identically, wasting the step. An *interval*
@@ -423,8 +435,8 @@ def _check_window(name: str, window: tuple[float, float], flags: list[bool]) -> 
     guided steps are the run up to ``t = 0.875`` *plus* ``t = 1``, and that gap is by design.)
     """
     lo, hi = window
-    if not (0.0 < lo <= hi <= 1.0):
-        raise ValueError(f"{name} must satisfy 0 < lo <= hi <= 1, got {window}")
+    if not (0.0 <= lo <= hi <= 1.0):
+        raise ValueError(f"{name} must satisfy 0 <= lo <= hi <= 1, got {window}")
     on = [i for i, flag in enumerate(flags) if flag]
     if on and on != list(range(on[0], on[-1] + 1)):
         raise ValueError(f"{name}={window} selects a non-contiguous set of steps: {on}")
@@ -566,10 +578,13 @@ def flowmap_smc_sample(
                     of a FLUX-scale run.
         eta:        SNR factor for the renoise level, ``g(t') = eta·g(t)``. ``eta > 1``.
         guid_window: **where the reward runs.** A step is guided when the time it lands on,
-                    ``ts[n+1]``, is inside the window. Set empirically.
+                    ``ts[n+1]``, is inside the window. Set empirically. ``(0.0, 1.0)`` guides every
+                    step and is safe: the lookahead level is the *target* time, so it is never 0
+                    (see `_check_window`).
         stoch_window: **which transitions are stochastic**, by the time each step *starts* from,
                     ``ts[n]``. Together with ``ts``, ``schedule`` and the two `TransitionStep`s this
-                    defines the base process ``p``.
+                    defines the base process ``p`` -- so unlike ``guid_window``, changing it
+                    invalidates any reference set drawn under the old value.
         inside_step / outside_step: the transitions used inside / outside ``stoch_window``.
         use_full_normalized_v: ``False`` (default) => ``v_k = lambda·R_k``. ``True`` => each of the three
                     raw scalars is independently Z-scored across the K lookahead samples of that
@@ -642,6 +657,12 @@ def flowmap_smc_sample(
     guid_flags = [_in_window(ts[n + 1], guid_window) for n in range(n_steps)]
     _check_window("stoch_window", stoch_window, stoch_flags)
     _check_window("guid_window", guid_window, guid_flags)
+    # The invariant that actually matters (see `_check_window`): every guided step's lookahead runs at
+    # its TARGET time, and that level must be > 0 or `_t_prime` / `_score_at` are undefined there. This
+    # holds structurally for a grid starting at 0 and strictly increasing, so it is a guard against a
+    # future non-standard grid rather than against a bad `guid_window`.
+    if any(flag and ts[n + 1] <= 0.0 for n, flag in enumerate(guid_flags)):
+        raise ValueError("a guided step lands on t = 0, where the lookahead level is undefined")
 
     device, dtype = reward.x_refs.device, reward.x_refs.dtype
     d = int(reward.x_refs.shape[1])
