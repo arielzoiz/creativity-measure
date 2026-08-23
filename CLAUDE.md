@@ -21,13 +21,16 @@ The updated reward that should be in use:
 and in high dimensions there is no grid to enumerate. This repo is a search for good samplers for $q_{\lambda}$.
 Everything else (distances, refsets, generators) is fixed infrastructure that any sampler consumes.
 
-**Current samplers** (`creativity_measure/`):
+**Current samplers** (`creativity_measure/`). Notebooks, commit messages and slurm headers refer to these **by number**:
+**Alg 1 = `adaptive_tempering_smc`, Alg 2 = `diamond_smc`, Alg 3 = `flowmap_smc`.**
 
-- `adaptive_tempering_smc.py` — the mature one. Adaptive-tempering SMC over $\beta \in [0,1]$ with a pluggable rejuvenation `Kernel`:
+- **Alg 1** — `adaptive_tempering_smc.py` — the mature one. Adaptive-tempering SMC over $\beta \in [0,1]$ with a pluggable rejuvenation `Kernel`:
   `PCNKernel` should be used (local prior-preserving pCN moves in the generator's latent Gaussian space, $x = G(z)$ — the workhorse for strong/off-manifold tilts)
-  while `IndependenceKernel` is stale.
-- `diffusion_smc.py` — **WIP draft**. Twisted-diffusion SMC: guide *inside* the EDM denoising trajectory with a lookahead reward twist instead of moving in data space.
-  Currently the approximate (biased, under-tilting) weight; `use_score_correction=True` raises `NotImplementedError` — the unbiased Tweedie/quadrature weight is the follow-up.
+  while `IndependenceKernel` is stale. The only sampler with a checkpoint-resume path.
+- **Alg 2** — `diamond_smc.py` — SMC *inside* the generative trajectory of a pretrained stochastic flow-map model (Algorithm 2 of Holderrieth et al., arXiv:2602.05993):
+  a DDPM transition per step, then a posterior lookahead through the diamond map to reweight. Entry point `diamond_smc_sample`.
+- **Alg 3** — `flowmap_smc.py` — a **single forward pass** noise $\to$ data with one lookahead per step: no tempering ladder, no rejuvenation, no acceptance rate to collapse.
+  Entry point `flowmap_smc_sample`. Cost is dominated entirely by reward evaluations.
 - **More samplers are expected.** Adding one is a first-class contribution, not a refactor.
 
 ## Invariants Every Sampler Must Respect
@@ -81,6 +84,17 @@ way to tell whether the run worked. Export from `__init__.py`, add tests under `
   This is a mechanism defect, not a tuning problem. (`notebooks/flowmap_smc_flux/`.)
 - **SMC cannot escape the generator manifold** — particles are $x = G(z)$, so its target stays proper even where the literal grid $q_{\lambda}$ diverges.
   This is a feature, and it differs from the toy-2D-grid version, that allows the distribution to drift of the grid.
+
+## Resuming From a Checkpoint
+
+Rules are general; the pCN parentheticals are Algorithm 1, the only sampler with a resume path so far.
+
+- **Do** fold the base target the checkpoint already carries into the **kernel**, explicitly (pCN: `beta=1.0, lam=lam_base + beta*lam`, keeping the SMC's own `beta` as the checkpoint key). Resume on the source run's GPU (`--constraint`) with persisted reference latents, and bump `RUN_TAG` per *leg* — output names derive from $N$ / `M_TILT` / `SEED`, so an untagged leg overwrites its own resume source.
+- **Don't** treat correct weights as evidence the resume is correct. Ratio-based weights reparametrize exactly (the base cancels); kernels do not (their base is baked in, not an argument), so **only the kernel breaks, and silently**.
+- **Don't** resume from a level that stopped on a wall-clock deadline instead of its own convergence rule — finish it at the source setting first. Its convergence baseline probably did not survive the checkpoint, so re-baseline and deliberately over-shoot.
+- **Assert** three things: the first resumed level does not regress on the objective; the kernel does not get *easier* across the join; no adaptive step size runs into its clamp. Each means the target is wrong, not that mixing is good.
+
+(Each rule is a failure run 2.1 / job 756301 actually hit; write-up in the `flux_strong_tilt_2_2.slurm` header, failures 3 and 4.)
 
 ## Repo Map
 
