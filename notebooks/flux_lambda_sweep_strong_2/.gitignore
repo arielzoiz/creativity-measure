@@ -1,4 +1,11 @@
-# Latents and per-image PNGs are regenerable and large; the summary grid is worth keeping.
+# Level checkpoints are large (16-42 MB each) and hold latents, not pictures.
 *.pt
 *.pt.tmp
-decoded/
+
+# decoded*/ IS TRACKED, deliberately. The earlier rule ignored it as "regenerable", which is false in
+# this repo's own terms: decode_levels.py regenerates the PNGs from levels_*.pt / partial_*.pt, and
+# those are ignored by the rule above -- so the images only survive as long as the checkpoints sit on
+# $WORK. The summary grid is not a substitute either: strong_tilt_grid_*.png is 2500x1416 for 8x16
+# tiles, ~156x177 per particle, against 512x512 for the real thing.
+# COST: ~0.44 MB per PNG, ~50 MB per leg, permanent (PNGs do not delta-compress). Budget for that
+# before adding a leg, or decode a subset of levels.
