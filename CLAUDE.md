@@ -93,8 +93,11 @@ Rules are general; the pCN parentheticals are Algorithm 1, the only sampler with
 - **Don't** treat correct weights as evidence the resume is correct. Ratio-based weights reparametrize exactly (the base cancels); kernels do not (their base is baked in, not an argument), so **only the kernel breaks, and silently**.
 - **Don't** resume from a level that stopped on a wall-clock deadline instead of its own convergence rule — finish it at the source setting first. Its convergence baseline probably did not survive the checkpoint, so re-baseline and deliberately over-shoot.
 - **Assert** three things: the first resumed level does not regress on the objective; the kernel does not get *easier* across the join; no adaptive step size runs into its clamp. Each means the target is wrong, not that mixing is good.
+- **Compose $\beta$ on a nested resume.** A resumed leg's checkpoint stores its own residual $u$, not absolute $\beta$: leg 2.2 ended at $u = 0.4524$ meaning $\beta = 0.7493$. Reading `init_entry["beta"]` works only for a leg-1 checkpoint and silently mis-tilts every later one — take $\beta_{0} = \beta_{\text{src}} + u(1 - \beta_{\text{src}})$ from the source's own `config["beta0"]`.
+- **Don't compare $d\beta$ across legs** as a correctness check. `_next_dbeta` bisects on the *spread* of `fX`, so any finishing pass that moves the cloud legitimately changes it (2.2: `f-sd` $0.0156 \to 0.0220$, $d\beta$ $0.1103 \to 0.1073$). Compare against the source checkpoint's stored `fX` instead — that is the invariant that survives.
+- **Budget rejuvenation from the measured rate, not from $s$ you assumed.** At $\lambda_{\text{eff}} \approx 150$, `s` adapts to $\approx 0.47$ (not $\approx 0.8$), giving refresh $\approx \bar{a}(1 - \sqrt{1-s^{2}}) \approx 0.024$/sweep — so `decorr` needs **~60+ sweeps**, not the ~15–20 a larger $s$ would suggest. 2.2 spent 21 sweeps and only reached 0.598.
 
-(Each rule is a failure run 2.1 / job 756301 actually hit; write-up in the `flux_strong_tilt_2_2.slurm` header, failures 3 and 4.)
+(Each rule is a failure a real run hit; write-ups in the `flux_strong_tilt_2_*.slurm` headers.)
 
 ## Repo Map
 
