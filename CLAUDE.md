@@ -143,6 +143,19 @@ before moving on:
 Run it inside the `creativity-measure` conda environment.
 Write fully type-annotated code so it passes cleanly.
 
+## Slurm `--mem`
+
+Peak host RSS is **10.2 GB** for the **Algorithm 3 flow-map jobs** — FLUX.1-dev *plus the
+`flux-1-dev-flowmap-lsd` LoRA*, `notebooks/flowmap_smc_flux/`, job 782816 — against the `--mem=64000`
+those scripts inherited unmeasured. **Use `--mem=24000` there.** *Not* measured for the Algorithm 1
+runs on base FLUX.1-dev without the LoRA; measure those before changing them.
+
+Over-requesting costs queue time: memory, not GPUs, is what blocks these jobs (2026-08-26: n-601 had
+2 free A6000s but only 11.8 GB free RAM, ~2 h lost). `sacct` `MaxRSS` is empty on this cluster, so
+measure in-process — `note()` stamps `ru_maxrss` on every progress line. Never set `--mem` *equal* to
+the observed peak: `ru_maxrss` under-reports page cache and the safetensors are mmap'd, so the cgroup
+can charge more, and an OOM-kill drains the node for everyone.
+
 ## Jupyter Notebooks
 
 When reading or editing `.ipynb` files, use the **notebook MCP server**.
