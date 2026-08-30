@@ -264,6 +264,41 @@ def test_ddpm_step_rejects_t_equals_one_as_source():
 
 
 # ---------------------------------------------------------------------------------------------------
+# 2b. The plug-in z_hat: a characterisation test, and the negative result it led to
+# ---------------------------------------------------------------------------------------------------
+
+def test_plug_in_z_breaks_the_marginal_with_a_deterministic_map():
+    """The defect `posterior_z_ddpm_step` exists to fix, pinned as a *characterisation* test.
+
+    `ddpm_step` is derived assuming ``z_hat`` is a draw from ``p(x_1|x_t)``. Handed the ODE endpoint of
+    a deterministic map it is not, and the error is not subtle on this toy: ``z_hat`` is perfectly
+    correlated with ``x``, so ``c_x·x + c_z·z_hat`` adds *coherently* and the marginal drifts up ~45%
+    over the grid. Note the sign -- the conditional variance is short by ``c_z^2·Cov(x_1|x_t)``, but
+    marginally the coherent mean term over-compensates.
+
+    **This toy number does NOT transfer to FLUX -- do not quote it as one.** Measured final latent std
+    there is 1.0014-1.0147 against a known-good 1.0150, because a real posterior in d = 65536 is far
+    tighter than this toy's, so ``map(x,t,1)`` sits close to ``E[x_1|x_t]``.
+
+    **The fix this motivated was tried and FAILED (job 781479, 2026-08-26).** Synthesising the missing
+    posterior draw by renoising to ``t_z`` and mapping back made things monotonically worse at every
+    strength: E_p[f] fell 12.5 std_p(f), nearest-neighbour difference energy fell 45% (it acts as a
+    low-pass filter), and clone separation did not improve. The Gaussian-exact renoise level implies
+    ``eta ~ 20`` at t = 0.19, against ``eta = 1.5`` for the lookahead -- far into the regime where the
+    distilled flow map contracts. The real cause of duplicate images is that image identity is locked
+    by t ~ 0.19, which no forward-only transition can undo. Kept as a characterisation test so the same
+    hypothesis is not re-derived from the toy.
+    """
+    schedule = LinearSchedule()
+    fm = GaussianFlowMap(schedule)
+    gen = torch.Generator().manual_seed(0)
+    x = torch.randn((20000, D), generator=gen, dtype=dtype)
+    for n in range(len(GRID) - 1):
+        x = ddpm_step(x, GRID[n], GRID[n + 1], flow_map=fm, schedule=schedule, generator=gen)
+    assert float(x.std()) > 1.4 * S_DATA          # ~1.89 vs the correct 1.3
+
+
+# ---------------------------------------------------------------------------------------------------
 # 3. The terminal update is mandatory, raw, and exact
 # ---------------------------------------------------------------------------------------------------
 

@@ -1,0 +1,24 @@
+[    0.0 min] START phase=strength tag=str_1 job=781479 gpu=NVIDIA RTX A6000
+[    2.6 min] flow map weights loaded; score ready (denoiser capped at 24 rows)
+[    3.7 min] PHASE 1 GATE PASSED  latent_std=0.9840 (base FLUX 1.0150)  denoise-vs-map gap=0.1760  s/row=0.492
+[   30.8 min] reward built: refs (64, 65536)  S=1.0606  gamma=[0.889, 1.02e+03] x 30   ref bank 27.0 min
+[   30.8 min] lambda_s LOADED from lam_s_R64_seed7.json: 140.093  (E_p[f] = 1.0062 +- 0.0071, f(refs) = 0.9844)
+[   30.8 min] DONE phase=strength  total wall clock 0.51 h  completed m values: []
+[   30.8 min] === PHASE 6: strength sweep [0.0, 0.25, 0.5, 1.0] (lambda=0, M=8, seed=101) ===
+[   30.8 min]     independent-draw reference distance ~ 367
+[   34.8 min]   strength=0  BASE std=1.0374 (want 1.015) E_p[f]=0.9999  pairdist med=309 [242s]
+[   35.4 min]   strength=0  CLONES split@step3 (t=0.188) pairdist med=192 min=189  std=1.1257
+[   35.7 min]   strength=0  CLONES split@step8 (t=0.500) pairdist med=122 min=121  std=1.0431
+[   39.7 min]   strength=0.25  BASE std=0.9615 (want 1.015) E_p[f]=0.9546  pairdist med=258 [240s]
+[   40.2 min]   strength=0.25  CLONES split@step3 (t=0.188) pairdist med=185 min=177  std=1.0695
+[   40.6 min]   strength=0.25  CLONES split@step8 (t=0.500) pairdist med=129 min=128  std=0.9827
+[   44.6 min]   strength=0.5  BASE std=0.9275 (want 1.015) E_p[f]=0.9343  pairdist med=239 [240s]
+[   45.1 min]   strength=0.5  CLONES split@step3 (t=0.188) pairdist med=180 min=170  std=1.0407
+[   45.5 min]   strength=0.5  CLONES split@step8 (t=0.500) pairdist med=131 min=130  std=0.9621
+[   49.5 min]   strength=1  BASE std=0.9031 (want 1.015) E_p[f]=0.9107  pairdist med=222 [240s]
+[   50.0 min]   strength=1  CLONES split@step3 (t=0.188) pairdist med=175 min=163  std=1.0094
+[   50.4 min]   strength=1  CLONES split@step8 (t=0.500) pairdist med=130 min=128  std=0.9354
+[   50.5 min] saved strength_sweep_str_1.pt
+[   50.5 min] wrote strength_base_str_1.png
+[   50.6 min] wrote strength_clones_split3_str_1.png
+[   50.7 min] wrote strength_clones_split8_str_1.png

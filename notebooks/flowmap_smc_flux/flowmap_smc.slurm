@@ -22,6 +22,21 @@
 #   sbatch --export=ALL,STOP_AFTER=refs   flowmap_smc.slurm     # ~45 min. Builds + persists refs.
 #   sbatch --export=ALL,STOP_AFTER=run    flowmap_smc.slurm     # the tilted runs.
 #
+# PHASE 6 (STOP_AFTER=strength) is a lambda = 0 A/B of the base transition, NOT a tilted run:
+#
+#   sbatch --time=150 --constraint=l40s --export=ALL,STOP_AFTER=strength,RUN_TAG=str_1 flowmap_smc.slurm
+#
+# It sweeps `posterior_z_ddpm_step`'s strength (0 = today's `ddpm_step`) and measures (a) base-process
+# health -- latent std against 1.0150 and E_p[f], which has a CV of 0.7% and so is a sensitive probe of
+# p having moved -- and (b) a clone-separation probe: one particle run to a split step, duplicated M
+# times exactly as a resample would, then finished. That is the decisive measurement for the duplicate
+# images in a3_1/a3_2/nv_1, where `uniq/N` predicts the number of distinct pictures exactly while the
+# copies sit 188-191 apart in latent space (independent draws are ~362) -- i.e. `ddpm_step` moves clones
+# without changing what they depict. Costs ONE reward call on M rows per configuration
+# (guid_window=(1.0,1.0), only the mandatory terminal update), so ~15 min of compute, not hours.
+# strength=0 is included deliberately: it is the in-job baseline, so the comparison never depends on
+# matching a previous run's GPU.
+#
 # DO NOT SKIP THE GATE. Phase 1 checks that p itself is healthy (latent std against base FLUX's
 # known-good 1.0150, and that denoise(x,t) differs from map(x,t,1) -- if they coincide the two-timestep
 # conditioning is inert and the LoRA load is suspect). If p looks degraded, stop before building 3 h on

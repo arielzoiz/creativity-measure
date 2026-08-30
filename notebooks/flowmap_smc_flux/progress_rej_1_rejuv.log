@@ -1,0 +1,23 @@
+[    0.0 min] START phase=rejuv tag=rej_1 job=782111 gpu=NVIDIA RTX A6000
+[    1.6 min] flow map weights loaded; score ready (denoiser capped at 24 rows)
+[    2.3 min] PHASE 1 GATE PASSED  latent_std=0.9840 (base FLUX 1.0150)  denoise-vs-map gap=0.1760  s/row=0.330
+[   28.8 min] reward built: refs (64, 65536)  S=1.0606  gamma=[0.889, 1.02e+03] x 30   ref bank 26.4 min
+[   28.8 min] lambda_s LOADED from lam_s_R64_seed7.json: 140.093  (E_p[f] = 1.0062 +- 0.0071, f(refs) = 0.9844)
+[   28.8 min] DONE phase=rejuv  total wall clock 0.48 h  completed m values: []
+[    0.0 min] START phase=rejuv tag=rej_1 job=782139 gpu=NVIDIA RTX A6000
+[    0.9 min] flow map weights loaded; score ready (denoiser capped at 24 rows)
+[    1.6 min] PHASE 1 GATE PASSED  latent_std=0.9840 (base FLUX 1.0150)  denoise-vs-map gap=0.1760  s/row=0.346
+[   27.8 min] reward built: refs (64, 65536)  S=1.0606  gamma=[0.889, 1.02e+03] x 30   ref bank 26.1 min
+[   27.8 min] lambda_s LOADED from lam_s_R64_seed7.json: 140.093  (E_p[f] = 1.0062 +- 0.0071, f(refs) = 0.9844)
+[   27.8 min] DONE phase=rejuv  total wall clock 0.46 h  completed m values: []
+[   27.8 min] === PHASE 7: renoise-and-replay rejuvenation, split at step 8 (t=0.500), M=8 ===
+[   31.6 min]   IID CEILING  pairdist=330  E_p[f]=1.0063  std=1.0573 hf=1.2093
+[   35.3 min]   NO REJUV     pairdist=121 (37% of iid)  E_p[f]=0.9972  hf=1.1980
+[   39.1 min]   t_rej=0.0625 (step 1)  pairdist=265 (80% of iid)  E_p[f]=0.9997  std=1.0233  hf=1.2495
+[   42.9 min]   t_rej=0.1250 (step 2)  pairdist=244 (74% of iid)  E_p[f]=0.9997  std=1.0080  hf=1.2691
+[   46.6 min]   t_rej=0.1875 (step 3)  pairdist=222 (67% of iid)  E_p[f]=0.9967  std=0.9865  hf=1.2323
+[   50.3 min]   t_rej=0.2500 (step 4)  pairdist=211 (64% of iid)  E_p[f]=0.9954  std=0.9846  hf=1.2378
+[   54.0 min]   t_rej=0.3125 (step 5)  pairdist=195 (59% of iid)  E_p[f]=0.9945  std=0.9832  hf=1.2069
+[   57.6 min]   t_rej=0.3750 (step 6)  pairdist=178 (54% of iid)  E_p[f]=0.9932  std=0.9743  hf=1.2040
+[   57.6 min] saved rejuv_sweep_rej_1.pt
+[   57.7 min] wrote rejuv_grid_rej_1.png

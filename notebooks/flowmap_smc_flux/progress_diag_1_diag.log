@@ -1,0 +1,18 @@
+[    0.0 min |  0.5G] START phase=diag tag=diag_1 job=782816 gpu=NVIDIA RTX A6000
+[    4.9 min | 10.2G] flow map weights loaded; score ready (denoiser capped at 24 rows)
+[    6.2 min | 10.2G] PHASE 1 GATE PASSED  latent_std=0.9840 (base FLUX 1.0150)  denoise-vs-map gap=0.1760  s/row=0.596
+[   33.0 min | 10.2G] reward built: refs (64, 65536)  S=1.0606  gamma=[0.889, 1.02e+03] x 30   ref bank 26.6 min
+[   33.0 min | 10.2G] lambda_s LOADED from lam_s_R64_seed7.json: 140.093  (E_p[f] = 1.0062 +- 0.0071, f(refs) = 0.9844)
+[   33.0 min | 10.2G] DONE phase=diag  total wall clock 0.55 h  completed m values: []
+[   33.0 min | 10.2G] === PHASE 8 STEP 1: IS baseline, M=64 (one reward call, lambda-independent) ===
+[   64.5 min | 10.2G]   E_p[f]=1.0020  std_p(f)=0.00781  (cached calibration: 1.0062 +- 0.0071, lam_s=140.093)
+[   64.5 min | 10.2G]   m=1 (lam=140.1): E_q[f]=1.0116  ESS=18.63/64  max weight=0.119
+[   64.5 min | 10.2G]   m=2 (lam=280.2): E_q[f]=1.0183  ESS=5.22/64  max weight=0.265
+[   64.5 min | 10.2G]   m=3 (lam=420.3): E_q[f]=1.0203  ESS=3.52/64  max weight=0.337
+[   64.5 min | 10.2G] === PHASE 8 STEP 2: twist SNR, M=32 K=8 eta=1.5 ===
+[  172.2 min | 10.2G]   t=0.1250 (t'=0.1045)  within=0.00503  between_obs=0.01279  between_true=0.01267
+[  172.2 min | 10.2G]       SNR at K=8: 7.12   K needed for SNR=2: 0.6   for SNR=4: 2.5
+[  281.2 min | 10.2G]   t=0.5000 (t'=0.4495)  within=0.00326  between_obs=0.00849  between_true=0.00841
+[  281.2 min | 10.2G]       SNR at K=8: 7.30   K needed for SNR=2: 0.6   for SNR=4: 2.4
+[  281.2 min | 10.2G] saved diag_diag_1.pt
+[  281.3 min | 10.2G] wrote diag_is / diag_extremes pngs
