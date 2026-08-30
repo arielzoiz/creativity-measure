@@ -169,16 +169,16 @@ def _rho(schedule: Schedule, t: float, t_next: float) -> tuple[float, float]:
     of ``x_t`` and ``x_{t'}`` given ``x_1``, read off the *noising* kernel ``q_{t|t'}``.
 
     ``1 - rho^2`` is computed as a difference of squares rather than literally: as ``h -> 0`` we have
-    ``rho -> 1``, and ``1 - rho*rho`` then loses every significant digit. In the difference-of-squares
-    form the numerator is exactly ``h`` under `LinearSchedule`, so no cancellation occurs at all.
+    ``rho -> 1``, and ``1 - rho*rho`` then loses every significant digit.
+    In the difference-of-squares form the numerator is exactly ``h`` under `LinearSchedule`, so no cancellation occurs at all.
     """
     a_t, s_t = schedule.alpha(t), schedule.sigma(t)
-    a_n, s_n = schedule.alpha(t_next), schedule.sigma(t_next)
-    den = a_n * s_t
+    a_next, s_next = schedule.alpha(t_next), schedule.sigma(t_next)
+    den = a_next * s_t
     if abs(den) < _TINY:                      # only reachable at sigma_t = 0, i.e. t = 1, never a source
         raise ValueError(f"ddpm_step has a pole at sigma_t = 0 (t = {t}); t = 1 is never a step source")
-    rho = (a_t * s_n) / den
-    one_minus_rho2 = max((den * den - (a_t * s_n) ** 2) / (den * den), 0.0)
+    rho = (a_t * s_next) / den
+    one_minus_rho2 = max((den * den - (a_t * s_next) ** 2) / (den * den), 0.0)
     return rho, one_minus_rho2
 
 
@@ -201,10 +201,10 @@ def ddpm_step(
 
     identical to the ``c_x``/``c_z``/``sigma_{t'|t}`` form but factored through ``rho`` (see `_rho`).
 
-    **No special cases.** At ``t = 0``: ``rho = 0`` -> ``x_{t'} = alpha_{t'}·z_hat + sigma_{t'}·eps``, a
-    pure draw. At ``t' = 1``: ``sigma_{t'} = 0`` -> ``rho = 0`` -> ``x_1 = z_hat`` deterministically, the
-    correct terminal denoise, and exactly where the mandatory ``V_N = lambda·f(x_1)`` is evaluated. The
-    only pole is ``sigma_t = 0`` at ``t = 1``, which is never a *source*.
+    **No special cases.** At ``t = 0``: ``rho = 0`` -> ``x_{t'} = alpha_{t'}·z_hat + sigma_{t'}·eps``, a pure draw.
+    At ``t' = 1``: ``sigma_{t'} = 0`` -> ``rho = 0`` -> ``x_1 = z_hat`` deterministically, the correct terminal denoise,
+    and exactly where the mandatory ``V_N = lambda·f(x_1)`` is evaluated.
+    The only pole is ``sigma_t = 0`` at ``t = 1``, which is never a *source*.
 
     ``z_hat`` is the ODE endpoint, i.e. a *sample*, standing in for a draw from ``p(x_1|x_t)``; the step
     is exact when it is one, and approximate for a deterministic map. This is why the head of the
@@ -215,11 +215,11 @@ def ddpm_step(
     single trajectory has no clone problem. Resampling creates one, and this solves it.
     """
     rho, one_minus_rho2 = _rho(schedule, t, t_next)
-    s_t, a_n, s_n = schedule.sigma(t), schedule.alpha(t_next), schedule.sigma(t_next)
+    s_t, a_next, s_next = schedule.sigma(t), schedule.alpha(t_next), schedule.sigma(t_next)
 
-    c_x = rho * (s_n / s_t)
-    c_z = a_n * one_minus_rho2
-    sigma_cond = s_n * math.sqrt(one_minus_rho2)
+    c_x = rho * (s_next / s_t)
+    c_z = a_next * one_minus_rho2
+    sigma_cond = s_next * math.sqrt(one_minus_rho2)
 
     z_hat = flow_map.map(x, t, 1.0)
     out = c_x * x + c_z * z_hat
