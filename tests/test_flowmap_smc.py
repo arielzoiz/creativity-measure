@@ -28,6 +28,7 @@ import torch
 from creativity_measure import LpDistance, NormalizedExpectedDistanceReward, Reward
 from creativity_measure._types import FlowMap, Schedule, TransitionStep
 from creativity_measure.distances.edm_adapter import edm_score_fn
+from creativity_measure.smc_common import _ess_from_logw
 from creativity_measure.flowmap_smc import (
     MIN_ZSCORE_STD,
     BaseSchedule,
@@ -210,6 +211,61 @@ def test_lambda_zero_is_unaffected_by_lookahead_effort():
     a = _run(reward, lam=0.0, mc_samples=2, seed=11)
     b = _run(reward, lam=0.0, mc_samples=8, seed=11)
     assert torch.equal(a.X, b.X)
+
+
+# ---------------------------------------------------------------------------------------------------
+# 1b. Diagnostic recording must be free: flags on must not perturb the run
+# ---------------------------------------------------------------------------------------------------
+
+def test_recording_flags_leave_the_run_bit_identical():
+    """`record_r_k` / `project_endpoint` observe only -- no RNG draws, no writes to U.
+
+    This is the invariant that lets the diagnostics be switched on for a real run and still be
+    compared against one taken without them. `map` and `reward` are deterministic, and the
+    projection never touches `U`, so every particle and every weight must match exactly.
+    """
+    reward = _reward()
+    plain = _run(reward, lam=3.0, n_particles=8, seed=5, ess_threshold=0.5)
+    rich = _run(reward, lam=3.0, n_particles=8, seed=5, ess_threshold=0.5,
+                record_r_k=True, project_endpoint=True)
+    assert torch.equal(plain.X, rich.X)
+    assert torch.equal(plain.logw, rich.logw)
+    assert plain.resampled_history == rich.resampled_history
+    assert plain.uniq_history == rich.uniq_history
+    assert plain.ess_history == rich.ess_history
+
+
+def test_recorded_resampling_bookkeeping_is_self_consistent():
+    """U_pre, the parent map and f_proj must line up -- they exist to be joined.
+
+    Each is otherwise unrecoverable after the fact: `_resample` zeroes U and composes `ancestors`,
+    so a reader cannot reconstruct either the weights the decision used or which parent went where.
+    """
+    reward = _reward()
+    res = _run(reward, lam=6.0, n_particles=8, seed=9, ess_threshold=0.9,
+               record_r_k=True, project_endpoint=True, mc_samples=4, keep_steps=True)
+    n = len(res.ess_history)
+    assert len(res.U_pre_history) == len(res.resample_idx_history) == n
+    assert len(res.f_proj_history) == len(res.eqf_history) == n
+    assert any(r for r in res.resampled_history), "test needs at least one resampling event"
+
+    for i, (did, idx) in enumerate(zip(res.resampled_history, res.resample_idx_history)):
+        assert (idx is not None) == did, f"step {i}: parent map presence must track resampling"
+        # ESS is taken on the PRE-resample weights, so it must be reproducible from U_pre alone.
+        assert math.isclose(_ess_from_logw(res.U_pre_history[i]), res.ess_history[i], rel_tol=1e-5)
+
+    # eqf is the self-normalized estimate under the pre-resample weights, in pre-resample order.
+    for i, fp in enumerate(res.f_proj_history):
+        assert fp is not None
+        w = torch.softmax(res.U_pre_history[i], dim=0)
+        assert math.isclose(float((w * fp).sum()), res.eqf_history[i], rel_tol=1e-5)
+
+    # r_k is kept on guided, non-terminal steps only -- K = 1 at t = 1, where no lookahead runs.
+    for i, rk in enumerate(res.r_k_history):
+        expected = res.guided_history[i] and i != n - 1
+        assert (rk is not None) == expected, f"step {i}: r_k presence"
+        if rk is not None:
+            assert rk.shape == (8, 4)
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -789,9 +845,13 @@ def test_resample_on_uniform_weights_is_the_identity():
     v = torch.arange(m, dtype=dtype)
     u = torch.zeros(m, dtype=dtype)
     anc = torch.arange(m)
-    xr, vr, ur, ar = _resample(x, v, u, anc, torch.Generator().manual_seed(3))
+    xr, vr, ur, ar, idx = _resample(x, v, u, anc, torch.Generator().manual_seed(3))
     assert torch.equal(xr, x) and torch.equal(vr, v) and torch.equal(ar, anc)
     assert torch.allclose(ur, torch.zeros_like(ur))
+    # The parent map is returned as well as applied: on uniform weights it is the identity, and it is
+    # the only way an analysis can align pre- and post-resample quantities (`ancestors` composes).
+    assert torch.equal(idx, torch.arange(m))
+    assert torch.equal(ar, anc[idx])
 
 
 def test_ts_validation():

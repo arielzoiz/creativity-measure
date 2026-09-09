@@ -1,0 +1,6 @@
+[    0.2 min |  0.5G] START phase=run tag=ctrl job=869619 gpu=NVIDIA L40S
+[   17.7 min | 10.2G] flow map weights loaded; score ready (denoiser capped at 24 rows)
+[   18.6 min | 10.2G] PHASE 1 GATE PASSED  latent_std=1.0345 (base FLUX 1.0150)  denoise-vs-map gap=0.1660  s/row=0.437
+[   37.5 min | 10.2G] reward built: refs (64, 65536)  S=1.0606  gamma=[0.889, 1.02e+03] x 30   ref bank 18.8 min
+[   37.5 min | 10.2G] lambda_s LOADED from lam_s_R64_seed7.json: 140.093  (E_p[f] = 1.0062 +- 0.0071, f(refs) = 0.9844)
+[   37.5 min | 10.2G] wrote eqf_by_K_ctrl.png with 4 curve(s)

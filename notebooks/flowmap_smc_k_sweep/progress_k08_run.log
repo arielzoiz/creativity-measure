@@ -1,0 +1,13 @@
+[    0.0 min |  0.5G] START phase=run tag=k08 job=869621 gpu=NVIDIA L40S
+[    4.1 min | 10.2G] flow map weights loaded; score ready (denoiser capped at 24 rows)
+[    4.8 min | 10.2G] PHASE 1 GATE PASSED  latent_std=1.0345 (base FLUX 1.0150)  denoise-vs-map gap=0.1660  s/row=0.357
+[   23.6 min | 10.2G] reward built: refs (64, 65536)  S=1.0606  gamma=[0.889, 1.02e+03] x 30   ref bank 18.7 min
+[   23.6 min | 10.2G] lambda_s LOADED from lam_s_R64_seed7.json: 140.093  (E_p[f] = 1.0062 +- 0.0071, f(refs) = 0.9844)
+[   23.6 min | 10.2G] === K=8  m=1.25  lambda=175.12  (lambda_s=140.09)  M=8 N=16 eta=1.5 guid_window=(0.0, 1.0) ess_thr=0.5 gpu=NVIDIA L40S ===
+[   45.2 min | 10.2G]   K=8 m=1.25 step 1/16 t=0.0625  ESS/M=0.82  uniq/M=1.00  E_q[f]=0.9166  f_cand=0.9181  21.6 min into this m
+[   66.8 min | 10.2G]   K=8 m=1.25 step 2/16 t=0.1250  ESS/M=0.62  uniq/M=1.00  E_q[f]=0.9265  f_cand=0.9215  43.1 min into this m
+[   88.3 min | 10.2G]   K=8 m=1.25 step 3/16 t=0.1875  ESS/M=0.68  uniq/M=1.00  E_q[f]=0.9506  f_cand=0.9391  64.7 min into this m
+[  109.9 min | 10.2G]   K=8 m=1.25 step 4/16 t=0.2500  ESS/M=0.44  uniq/M=0.62  E_q[f]=0.9715  f_cand=0.9504  86.3 min into this m
+[  131.5 min | 10.2G]   K=8 m=1.25 step 5/16 t=0.3125  ESS/M=0.47  uniq/M=0.38  E_q[f]=0.9920  f_cand=0.9673  107.8 min into this m
+[  153.0 min | 10.2G]   K=8 m=1.25 step 6/16 t=0.3750  ESS/M=0.86  uniq/M=0.38  E_q[f]=1.0097  f_cand=0.9863  129.4 min into this m
+[  174.6 min | 10.2G]   K=8 m=1.25 step 7/16 t=0.4375  ESS/M=0.72  uniq/M=0.38  E_q[f]=1.0233  f_cand=0.9956  151.0 min into this m
