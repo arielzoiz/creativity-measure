@@ -1,0 +1,19 @@
+[    0.0 min |  0.5G] START phase=run tag=k04max job=870119 gpu=NVIDIA L40S
+[    0.7 min | 10.2G] flow map weights loaded; score ready (denoiser capped at 24 rows)
+[    1.2 min | 10.2G] PHASE 1 GATE PASSED  latent_std=1.0345 (base FLUX 1.0150)  denoise-vs-map gap=0.1660  s/row=0.229
+[   20.1 min | 10.2G] reward built: refs (64, 65536)  S=1.0606  gamma=[0.889, 1.02e+03] x 30   ref bank 18.9 min
+[   20.1 min | 10.2G] lambda_s LOADED from lam_s_R64_seed7.json: 140.093  (E_p[f] = 1.0062 +- 0.0071, f(refs) = 0.9844)
+[   20.1 min | 10.2G] === agg=max  K=4  m=1.25  lambda=175.12  (lambda_s=140.09)  M=8 N=16 eta=1.5 guid_window=(0.0, 1.0) ess_thr=0.5 gpu=NVIDIA L40S ===
+[   32.2 min | 10.2G]   [max] K=4 m=1.25 step 1/16 t=0.0625  ESS/M=0.32  uniq/M=0.62  E_q[f]=0.9169  f_cand=0.9180  12.1 min into this m
+[   44.3 min | 10.2G]   [max] K=4 m=1.25 step 2/16 t=0.1250  ESS/M=0.14  uniq/M=0.25  E_q[f]=0.9306  f_cand=0.9214  24.2 min into this m
+[   56.4 min | 10.2G]   [max] K=4 m=1.25 step 3/16 t=0.1875  ESS/M=0.14  uniq/M=0.12  E_q[f]=0.9882  f_cand=0.9488  36.3 min into this m
+[   68.5 min | 10.2G]   [max] K=4 m=1.25 step 4/16 t=0.2500  ESS/M=0.64  uniq/M=0.12  E_q[f]=1.0080  f_cand=0.9895  48.4 min into this m
+[   80.5 min | 10.2G]   [max] K=4 m=1.25 step 5/16 t=0.3125  ESS/M=0.58  uniq/M=0.12  E_q[f]=1.0184  f_cand=0.9996  60.5 min into this m
+[   92.6 min | 10.2G]   [max] K=4 m=1.25 step 6/16 t=0.3750  ESS/M=0.48  uniq/M=0.12  E_q[f]=1.0309  f_cand=1.0050  72.6 min into this m
+[  104.7 min | 10.2G]   [max] K=4 m=1.25 step 7/16 t=0.4375  ESS/M=0.79  uniq/M=0.12  E_q[f]=1.0403  f_cand=1.0225  84.7 min into this m
+[  116.8 min | 10.2G]   [max] K=4 m=1.25 step 8/16 t=0.5000  ESS/M=0.61  uniq/M=0.12  E_q[f]=1.0552  f_cand=1.0322  96.8 min into this m
+[  128.9 min | 10.2G]   [max] K=4 m=1.25 step 9/16 t=0.5625  ESS/M=0.76  uniq/M=0.12  E_q[f]=1.0529  f_cand=1.0371  108.9 min into this m
+[  141.0 min | 10.2G]   [max] K=4 m=1.25 step 10/16 t=0.6250  ESS/M=0.59  uniq/M=0.12  E_q[f]=1.0533  f_cand=1.0359  121.0 min into this m
+[  153.1 min | 10.2G]   [max] K=4 m=1.25 step 11/16 t=0.6875  ESS/M=0.68  uniq/M=0.12  E_q[f]=1.0443  f_cand=1.0321  133.1 min into this m
+[  165.2 min | 10.2G]   [max] K=4 m=1.25 step 12/16 t=0.7500  ESS/M=0.59  uniq/M=0.12  E_q[f]=1.0347  f_cand=1.0233  145.2 min into this m
+[  177.3 min | 10.2G]   [max] K=4 m=1.25 step 13/16 t=0.8125  ESS/M=0.59  uniq/M=0.12  E_q[f]=1.0235  f_cand=1.0134  157.3 min into this m

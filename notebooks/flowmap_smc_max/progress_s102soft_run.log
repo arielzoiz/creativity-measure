@@ -1,0 +1,27 @@
+[    0.0 min |  0.5G] START phase=run tag=s102soft job=870497 gpu=NVIDIA L40S
+[    0.8 min | 10.2G] flow map weights loaded; score ready (denoiser capped at 24 rows)
+[    1.3 min | 10.2G] PHASE 1 GATE PASSED  latent_std=1.0345 (base FLUX 1.0150)  denoise-vs-map gap=0.1660  s/row=0.232
+[   20.2 min | 10.2G] reward built: refs (64, 65536)  S=1.0606  gamma=[0.889, 1.02e+03] x 30   ref bank 18.9 min
+[   20.2 min | 10.2G] lambda_s LOADED from lam_s_R64_seed7.json: 140.093  (E_p[f] = 1.0062 +- 0.0071, f(refs) = 0.9844)
+[   20.2 min | 10.2G] === agg=soft  K=8  seed=102  m=1.25  lambda=175.12  (lambda_s=140.09)  M=8 N=16 eta=1.5 guid_window=(0.0, 1.0) ess_thr=0.5 gpu=NVIDIA L40S ===
+[   41.9 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 1/16 t=0.0625  ESS/M=0.42  uniq/M=0.38  E_q[f]=0.9309  f_cand=0.9222  21.7 min into this m
+[   63.7 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 2/16 t=0.1250  ESS/M=0.60  uniq/M=0.38  E_q[f]=0.9384  f_cand=0.9310  43.5 min into this m
+[   85.4 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 3/16 t=0.1875  ESS/M=0.43  uniq/M=0.38  E_q[f]=0.9675  f_cand=0.9508  65.2 min into this m
+[  107.1 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 4/16 t=0.2500  ESS/M=0.78  uniq/M=0.38  E_q[f]=0.9838  f_cand=0.9657  87.0 min into this m
+[  128.9 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 5/16 t=0.3125  ESS/M=0.67  uniq/M=0.38  E_q[f]=0.9975  f_cand=0.9777  108.7 min into this m
+[  150.6 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 6/16 t=0.3750  ESS/M=0.69  uniq/M=0.38  E_q[f]=1.0113  f_cand=0.9876  130.5 min into this m
+[  172.4 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 7/16 t=0.4375  ESS/M=0.76  uniq/M=0.38  E_q[f]=1.0220  f_cand=0.9968  152.2 min into this m
+[  194.1 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 8/16 t=0.5000  ESS/M=0.79  uniq/M=0.38  E_q[f]=1.0310  f_cand=1.0071  173.9 min into this m
+[  215.9 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 9/16 t=0.5625  ESS/M=0.91  uniq/M=0.38  E_q[f]=1.0358  f_cand=1.0158  195.7 min into this m
+[  237.6 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 10/16 t=0.6250  ESS/M=0.83  uniq/M=0.38  E_q[f]=1.0383  f_cand=1.0180  217.4 min into this m
+[  259.3 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 11/16 t=0.6875  ESS/M=0.80  uniq/M=0.38  E_q[f]=1.0359  f_cand=1.0179  239.2 min into this m
+[  281.1 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 12/16 t=0.7500  ESS/M=0.72  uniq/M=0.38  E_q[f]=1.0301  f_cand=1.0137  260.9 min into this m
+[  302.8 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 13/16 t=0.8125  ESS/M=0.59  uniq/M=0.38  E_q[f]=1.0226  f_cand=1.0085  282.7 min into this m
+[  324.6 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 14/16 t=0.8750  ESS/M=0.48  uniq/M=0.38  E_q[f]=1.0169  f_cand=1.0057  304.4 min into this m
+[  346.3 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 15/16 t=0.9375  ESS/M=0.95  uniq/M=0.38  E_q[f]=1.0069  f_cand=0.9994  326.2 min into this m
+[  348.7 min | 10.2G]   [soft] K=8 seed=102 m=1.25 step 16/16 t=1.0000  ESS/M=0.96  uniq/M=0.38  E_q[f]=1.0069  f_cand=1.0069  328.5 min into this m
+[  348.7 min | 10.2G] [soft] K=8 seed=102 m=1.25 COMPLETED in 328.5 min (5.48 h)  saved -> result_N8_K8_m1.25_seed102_soft_s102soft.pt
+[  348.7 min | 10.2G] [soft] aggregation verified at step 0
+[  348.7 min | 10.2G] [soft] K=8 seed=102 SUMMARY  E_q[f] peak=1.0383 at step 10  terminal=1.0069  give-back=+0.0314  final uniq/M=0.375  resamples=3/16
+[  348.7 min | 10.2G] SUMMARY [soft] K=8 m=1.25 lam=175.1  peak=1.0383@10  terminal=1.0069  give-back=+0.0314  collapse@None  resamples=3  uniq/M=0.375
+[  348.7 min | 10.2G]   max-vs-soft potential gap (f units): mean=3.473e-03  first=6.021e-03  last=7.678e-04   (x lam = 0.608 in log-weight units)
