@@ -376,7 +376,7 @@ def _resample(
     U: Float[Tensor, "M"],
     ancestors: Int[Tensor, "M"],
     generator: torch.Generator,
-) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Int[Tensor, "M"]]:
     """Draw parents ∝ softmax(U), reindex ``x``/``V_prev``/``ancestors``, zero the potential.
 
     Systematic (not multinomial) resampling, per ``smc_common``. Besides the lower variance, this makes
@@ -384,7 +384,7 @@ def _resample(
     permutation, so an untilted run reproduces the base sampler particle-for-particle.
     """
     idx = _systematic_resample(torch.softmax(U, dim=0), generator)
-    return x[idx], V_prev[idx], torch.zeros_like(U), ancestors[idx]
+    return x[idx], V_prev[idx], torch.zeros_like(U), ancestors[idx], idx
 
 
 def _antithetic_noise(
@@ -453,6 +453,12 @@ class StepSnapshot:
     Captured *after* the step's potential update and resampling, so ``X`` at ``t`` is the cloud the run
     actually carried forward. Intermediate states can be decoded with the existing FLUX notebooks'
     ``decode_levels.py``.
+
+    **MIND THE ORDER.** ``X``, ``U`` and ``ancestors`` are POST-resample; ``V`` is the potential as
+    computed, i.e. PRE-resample. On a step that resampled they are therefore in *different* particle
+    orders, and joining them per-particle without going through ``resample_idx`` is silently wrong.
+    ``U_pre`` and ``resample_idx`` are recorded precisely so no reader has to reconstruct either:
+    ``U`` is all zeros after a resample, so the weights the decision was taken on are otherwise gone.
     """
 
     t: float
@@ -460,6 +466,9 @@ class StepSnapshot:
     U: Float[Tensor, "M"]
     V: Float[Tensor, "M"]
     ancestors: Int[Tensor, "M"]
+    U_pre: Float[Tensor, "M"] | None = None
+    resample_idx: Int[Tensor, "M"] | None = None
+    f_proj: Float[Tensor, "M"] | None = None
 
 
 @dataclass
@@ -489,6 +498,22 @@ class FlowMapSMCResult:
         l_mean/l_std, s_mean/s_std: the same for the raw ``L`` (log-likelihood) and ``S`` (score
                     correction) terms, so the twist can be inspected -- at K = 4 it is a live question
                     whether they move the weights at all. ``nan`` outside the guided, non-terminal steps.
+        U_pre_history:     the accumulated potential ``U`` **before** that step's resampling, ``(M,)``
+                    per step. This is the quantity the resampling decision is actually taken on, and
+                    the correct weight for a self-normalized estimate at step ``n``. It is destroyed
+                    in the returned state -- ``_resample`` zeroes ``U`` -- so it is recorded here
+                    rather than left for a reader to reconstruct from ``V`` differences.
+        resample_idx_history: the **parent map** applied at each step, ``(M,)``, or ``None`` where the
+                    step did not resample. Not recoverable from ``ancestors``, which is the composition
+                    of every resampling so far; see `_resample`.
+        r_k_history:       per-step lookahead rewards ``(M, K)`` when ``record_r_k=True``, else
+                    ``None`` per step. ``None`` on unguided and terminal steps (K = 1 there). This is
+                    what lets any ``K' <= K`` be reconstructed offline by subsetting.
+        f_proj_history:    ``f`` of each particle's projected clean endpoint, ``(M,)``, when
+                    ``project_endpoint=True``; ``None`` per step otherwise. Recorded in
+                    **pre-resample** particle order, so it aligns with ``U_pre_history``.
+        eqf_history:       ``softmax(U_pre) . f_proj`` -- the self-normalized estimate of
+                    ``E_q_n[f]`` at that step. ``nan`` when ``project_endpoint=False``.
         steps:      per-step `StepSnapshot`s when the run was given ``keep_steps=True``; ``None`` otherwise.
     """
 
@@ -509,6 +534,11 @@ class FlowMapSMCResult:
     l_std: list[float] = field(default_factory=list)
     s_mean: list[float] = field(default_factory=list)
     s_std: list[float] = field(default_factory=list)
+    U_pre_history: list[Tensor] = field(default_factory=list)
+    resample_idx_history: list[Tensor | None] = field(default_factory=list)
+    r_k_history: list[Tensor | None] = field(default_factory=list)
+    f_proj_history: list[Tensor | None] = field(default_factory=list)
+    eqf_history: list[float] = field(default_factory=list)
     steps: list[StepSnapshot] | None = None
 
 
@@ -548,6 +578,8 @@ def flowmap_smc_sample(
     ess_threshold: float = 1.0,
     antithetic: bool = True,
     final_resample: bool = False,
+    record_r_k: bool = False,
+    project_endpoint: bool = False,
     keep_steps: bool = False,
     snapshot_device: torch.device | str | None = "cpu",
     on_step: "StepCallback | None" = None,
@@ -600,6 +632,20 @@ def flowmap_smc_sample(
         antithetic: pair the lookahead noise draws (``eps_{2j+1} = -eps_{2j}``).
         final_resample: resample once more after the terminal update, yielding an equally-weighted
                     ensemble. Off by default: ``logw`` carries the weight.
+        record_r_k: keep each guided step's lookahead rewards ``(M, K)`` in ``r_k_history``. Costs
+                    ``M*K`` floats per step and no compute. What it buys is the whole ``K' <= K``
+                    axis offline: ``V(K')`` for any smaller ``K'`` is a subset average of the same
+                    numbers, so one run at ``K`` answers for every ``K'`` below it.
+        project_endpoint: at every step, **before** resampling, push each particle to a clean endpoint
+                    ``map(x, t_next, 1)`` and evaluate ``f`` on it, recording ``f_proj_history`` and
+                    the self-normalized ``eqf_history``. This is the honest per-step estimate of
+                    ``E_q_n[f]``: the alternative (``f_mean`` over the ``M*K`` lookahead candidates) is
+                    unweighted and taken at the renoised level ``t'``, so it is a biased proxy.
+                    **Pre-resample by design** -- the self-normalized SMC estimate uses the weights
+                    before resampling, and resampling only adds variance. Costs ``M`` reward rows per
+                    step, except the terminal step, which reuses the reward it already computed.
+                    ``map`` and ``reward`` are both deterministic and consume no generator, and
+                    nothing here touches ``U``, so the trajectory is bit-identical either way.
         keep_steps: also return the cloud at every ``t`` (see `StepSnapshot`), so intermediate states
                     can be decoded. Snapshotting only reads state, so the run stays bit-identical.
         snapshot_device: where ``keep_steps`` snapshots are stored. ``"cpu"`` by default so a long
@@ -707,10 +753,16 @@ def flowmap_smc_sample(
         f_stats: tuple[float, float, float, float] = (math.nan, math.nan, math.nan, math.nan)
         l_stats: tuple[float, float] = (math.nan, math.nan)
         s_stats: tuple[float, float] = (math.nan, math.nan)
+        r_k_kept: Tensor | None = None
+        f_proj: Tensor | None = None
 
         if guided and is_final:
             f = reward(x)
             V_next = lam * f
+            # At t = 1 the particle IS the clean sample, so the projection is this same reward --
+            # reuse it rather than paying M more rows on `map(x, 1, 1)`, which is also ill-posed.
+            if project_endpoint:
+                f_proj = f.detach().clone()
             f_stats = (float(f.mean()), float(f.std()) if f.numel() > 1 else 0.0,
                        float(f.min()), float(f.max()))
         elif guided:
@@ -740,6 +792,8 @@ def flowmap_smc_sample(
             f_stats = (float(r_k.mean()), float(r_k.std()) if r_k.numel() > 1 else 0.0,
                        float(r_k.min()), float(r_k.max()))
             l_stats, s_stats = _stats(l_k), _stats(s_k)
+            if record_r_k:
+                r_k_kept = r_k.view(M, K).detach().clone()
         else:
             # Outside the guidance window U and V are carried forward unchanged: the K lookaheads, the
             # reward and the potential update are all skipped. The transition still happened above.
@@ -748,12 +802,32 @@ def flowmap_smc_sample(
         U = U + V_next - V_prev
         V_prev = V_next
 
+        # --- (3b) projected endpoint, BEFORE resampling ---------------------------------------------
+        # The self-normalized estimate of E_q_n[f] uses the weights the step arrived with; resampling
+        # is variance-adding, so measuring after it throws information away. Deterministic and
+        # U-free, so the trajectory is unaffected -- see `project_endpoint`.
+        if project_endpoint and f_proj is None:
+            f_proj = reward(flow_map.map(x, t_next, 1.0)).detach().clone()
+        U_pre = U.detach().clone()
+        eqf = (float((torch.softmax(U_pre, dim=0) * f_proj).sum())
+               if f_proj is not None else math.nan)
+
         # --- (4) ESS-triggered resampling ----------------------------------------------------------
         ess = _ess_from_logw(U)
         do_resample = (ess < ess_threshold * M) and (not is_final or final_resample)
+        resample_idx: Tensor | None = None
         if do_resample:
-            x, V_prev, U, ancestors = _resample(x, V_prev, U, ancestors, gen_resample)
+            x, V_prev, U, ancestors, resample_idx = _resample(
+                x, V_prev, U, ancestors, gen_resample
+            )
 
+        result.U_pre_history.append(U_pre)
+        result.resample_idx_history.append(
+            None if resample_idx is None else resample_idx.detach().clone()
+        )
+        result.r_k_history.append(r_k_kept)
+        result.f_proj_history.append(f_proj)
+        result.eqf_history.append(eqf)
         result.ess_history.append(ess)
         result.resampled_history.append(do_resample)
         result.uniq_history.append(len(torch.unique(ancestors)) / M)
@@ -766,8 +840,12 @@ def flowmap_smc_sample(
         result.l_mean.append(l_stats[0]); result.l_std.append(l_stats[1])
         result.s_mean.append(s_stats[0]); result.s_std.append(s_stats[1])
         if result.steps is not None or on_step is not None:
-            snap = StepSnapshot(t=t_next, X=keep(x), U=keep(U), V=keep(V_next),
-                                ancestors=keep(ancestors))
+            snap = StepSnapshot(
+                t=t_next, X=keep(x), U=keep(U), V=keep(V_next), ancestors=keep(ancestors),
+                U_pre=keep(U_pre),
+                resample_idx=None if resample_idx is None else keep(resample_idx),
+                f_proj=None if f_proj is None else keep(f_proj),
+            )
             if result.steps is not None:
                 result.steps.append(snap)
             if on_step is not None:

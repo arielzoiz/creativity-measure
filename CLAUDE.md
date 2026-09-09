@@ -93,6 +93,13 @@ way to tell whether the run worked. Export from `__init__.py`, add tests under `
 - **Rising $\operatorname{std}_{q}(f)$ under stronger tilt is expected, not degeneracy.** $q_{\lambda}$ is an exponential family, so
   $\frac{d}{d\lambda} E_{q}[f] = \operatorname{Var}_{q}(f)$ and $\frac{d}{d\lambda}\operatorname{Var}_{q}(f) = E_{q}[(f - E_{q}f)^{3}]$ — the spread *grows* whenever $f$ is right-skewed under $q$, which is what moving mass off the bulk of $p$ toward a larger-volume shell does. (It must collapse eventually as $q$ concentrates on the maximizer, but only past the peak.)
   **Use the first identity as a free equilibrium check**: per-level $\Delta E_{q}[f] / \Delta\lambda$ against $\operatorname{Var}_{q}(f)$ needs only numbers every level already records. It holds across the whole FLUX ladder including $\lambda_{\text{eff}} = 207 \to 214$ (ratios 0.72, 0.85), where $\operatorname{std}_{q}(f)$ had grown to $6.8\times \operatorname{std}_{p}(f)$ and looked alarming. At $N = 16$ each variance carries $\approx 37\%$, so treat ratios in $\approx 0.4$–$2.5$ as consistent. Never read spread growth alone as collapse — `uniq/N` and ESS/N remain the degeneracy signals.
+- **$E_{q}[f]$ measured on $\operatorname{map}(x_{t}, t, 1)$ at intermediate $t$ is inflated — always subtract a $\lambda = 0$ control.**
+  The untilted base process alone runs 0.9160 → 1.0207 (step 10) → 0.9943 ($t = 1$): a give-back of $3.7\operatorname{std}_{p}(f)$ with no tilt, no resampling, `uniq/M = 1.00`.
+  **Only $t = 1$ is artifact-free.** (`notebooks/flowmap_smc_k_sweep/RESULTS.md`.)
+- **Lookahead depth $K$ saturates at $\approx 8$, and shows NO trend in the outcome; use $K = 4$.** Terminal control-subtracted tilt effect over $K = 4/8/16/32$ is $+0.81 / +1.49 / +0.59 / +1.23\operatorname{std}_{p}(f)$ — scatter, not a peak (seed sd $\approx 0.17$). $\operatorname{sd}(U)/\operatorname{sd}(V)$ does not follow $1/\sqrt{K}$ — the measured drop stays $\approx 1.5\times$ while the prediction reaches $5.66\times$, plateauing at $\approx 0.67$ (within-cell, so not confounded by cloud state).
+  $K = 4 \to 8$ buys $\approx 10\%$ for $1.77\times$ the cost; $K \ge 16$ is wasted. The residual floor is *assumed* to be step-to-step $V$ movement — **not measured**; if it is, CRN cannot help either and the lever is $M$. Decompose $U_n$ from the saved `r_k` before spending GPU on CRN.
+- **$K$ does not predict collapse.** $K = 4$ and $K = 32$ collapsed to one lineage at step 3; $K = 8$ and $K = 16$ did not. Degeneracy is an $M$ problem, not a $K$ problem.
+- **Collapse inflates $E_{q}[f]$.** Single-lineage cells show the largest mid-run effects and the steepest decay ($K = 4$: $+4.91 \to +0.81$ sd peak-to-terminal). Never read $E_{q}[f]$ without `uniq/M`.
 
 ## Resuming From a Checkpoint
 
@@ -117,6 +124,11 @@ Rules are general; the pCN parentheticals are Algorithm 1, the only sampler with
   see Established Findings and `notebooks/refset_auto_r/`.
 - `generators/` — $G: z \mapsto x$ via the EDM probability-flow ODE, so $G(N(0,I)) \approx p$ (`toy_2d`, `edm_pixel`, `tiny_sd`, `flux`).
 - `tilt.py` — rewards; `density.py` — $p$ as `log_p_X` / `log_p_Y` / sampler.
+- `flowmap_smc.py` also records, all side-effect-free (bit-identical runs, asserted by
+  `test_recording_flags_leave_the_run_bit_identical`): `record_r_k` (keeps $(M, K)$ lookahead rewards,
+  so any $K' \le K$ is reconstructible offline by subsetting), `project_endpoint` (per-step $E_{q}[f]$
+  from $f(\operatorname{map}(x, t, 1))$, weighted **pre**-resample), plus `U_pre_history` and
+  `resample_idx_history` — the parent map is *not* recoverable from `ancestors`, which composes.
 - `creative_sampling_flow.ipynb` (repo root) — the end-to-end algorithm spec + API sketch.
 - `notebooks/` — the experiment record; each ends in a **Takeaways** cell that is the authoritative statement of what was learned. Read the relevant one before changing behavior it calibrated.
 
@@ -155,6 +167,19 @@ Over-requesting costs queue time: memory, not GPUs, is what blocks these jobs (2
 measure in-process — `note()` stamps `ru_maxrss` on every progress line. Never set `--mem` *equal* to
 the observed peak: `ru_maxrss` under-reports page cache and the safetensors are mmap'd, so the cgroup
 can charge more, and an OOM-kill drains the node for everyone.
+
+## Slurm: comparing cells across concurrent jobs
+
+- **Pin `--constraint` to ONE GPU model** — never `a6000|l40s`. Concurrent cells land wherever frees
+  first, and a GPU change shifts $f$ by 16% of $\operatorname{std}_{p}(f)$ (job 697271), the same order
+  as the effects usually being measured. Record `gpu_name` per result and assert it matches.
+- **Serialize node-local staging with `flock`, and verify the staged file COUNT**, not just that
+  `model_index.json` exists — that file is ~1 KB and copies first, so it survives the very failure the
+  check is for. `/tmp` filled mid-copy on n-801 and n-804 and killed two jobs (`cp: No space left on
+  device`); separately, a second job on the same node will `rm -rf` the first's in-progress 32 GB copy.
+  A lock only helps if *both* jobs take it — while any pre-fix job is live, node-disjointness is the guard.
+- **Best: `--nodelist` a node that already holds a complete stage.** Instant cache HIT, no disk needed,
+  and it skips the 2.3–3.7 h stage entirely.
 
 ## Jupyter Notebooks
 
