@@ -1,0 +1,46 @@
+[    0.0 min |  0.5G] RUN_DIR pinned to cwd: /home/dcor/arielzoizner/projects/creativity-measure/notebooks/flowmap_smc_replay
+[    0.3 min | 10.2G] flow map weights loaded; score ready (denoiser capped at 24 rows)
+[    0.8 min | 10.2G] PHASE 1 GATE PASSED  latent_std=1.0345 (base FLUX 1.0150)  denoise-vs-map gap=0.1660  s/row=0.232
+[   19.7 min | 10.2G] reward built: refs (64, 65536)  S=1.0606  gamma=[0.889, 1.02e+03] x 30   ref bank 18.9 min
+[   19.8 min | 10.2G] lambda_s LOADED from lam_s_R64_seed7.json: 140.093  (E_p[f] = 1.0062 +- 0.0071, f(refs) = 0.9844)
+[   19.8 min | 10.2G] === agg=mean seed=102 K=4  m=1.25  lambda=175.12  (lambda_s=140.09)  M=8 N=16 eta=1.5 guid_window=(0.0, 1.0) ess_thr=0.5 gpu=NVIDIA L40S ===
+[   31.9 min | 10.2G]   [mean s102] K=4 m=1.25 step 1/16 t=0.0625  ESS/M=0.49  uniq/M=0.62  E_q[f]=0.9310  f_cand=0.9219  12.1 min into this m
+[   44.0 min | 10.2G]   [mean s102] K=4 m=1.25 step 2/16 t=0.1250  ESS/M=0.72  uniq/M=0.62  E_q[f]=0.9354  f_cand=0.9292  24.2 min into this m
+[   56.1 min | 10.2G]   [mean s102] K=4 m=1.25 step 3/16 t=0.1875  ESS/M=0.63  uniq/M=0.62  E_q[f]=0.9606  f_cand=0.9483  36.3 min into this m
+[   68.2 min | 10.2G]   [mean s102] K=4 m=1.25 step 4/16 t=0.2500  ESS/M=0.49  uniq/M=0.38  E_q[f]=0.9765  f_cand=0.9578  48.4 min into this m
+[   80.3 min | 10.2G]   [mean s102] K=4 m=1.25 step 5/16 t=0.3125  ESS/M=0.72  uniq/M=0.38  E_q[f]=0.9992  f_cand=0.9779  60.5 min into this m
+[   92.4 min | 10.2G]   [mean s102] K=4 m=1.25 step 6/16 t=0.3750  ESS/M=0.74  uniq/M=0.38  E_q[f]=1.0111  f_cand=0.9893  72.7 min into this m
+[  104.5 min | 10.2G]   [mean s102] K=4 m=1.25 step 7/16 t=0.4375  ESS/M=0.61  uniq/M=0.38  E_q[f]=1.0194  f_cand=0.9972  84.8 min into this m
+[  116.6 min | 10.2G]   [mean s102] K=4 m=1.25 step 8/16 t=0.5000  ESS/M=0.79  uniq/M=0.38  E_q[f]=1.0288  f_cand=1.0068  96.9 min into this m
+[  128.8 min | 10.2G]   [mean s102] K=4 m=1.25 step 9/16 t=0.5625  ESS/M=0.82  uniq/M=0.38  E_q[f]=1.0339  f_cand=1.0150  109.0 min into this m
+[  140.9 min | 10.2G]   [mean s102] K=4 m=1.25 step 10/16 t=0.6250  ESS/M=0.51  uniq/M=0.38  E_q[f]=1.0385  f_cand=1.0171  121.1 min into this m
+[  153.0 min | 10.2G]   [mean s102] K=4 m=1.25 step 11/16 t=0.6875  ESS/M=0.48  uniq/M=0.38  E_q[f]=1.0365  f_cand=1.0160  133.3 min into this m
+[  165.2 min | 10.2G]   [mean s102] K=4 m=1.25 step 12/16 t=0.7500  ESS/M=0.86  uniq/M=0.38  E_q[f]=1.0288  f_cand=1.0149  145.4 min into this m
+[  177.3 min | 10.2G]   [mean s102] K=4 m=1.25 step 13/16 t=0.8125  ESS/M=0.74  uniq/M=0.38  E_q[f]=1.0208  f_cand=1.0080  157.5 min into this m
+[  195.1 min | 10.2G]   [mean s102] K=4 m=1.25 step 14/16 t=0.8750  ESS/M=0.63  uniq/M=0.38  E_q[f]=1.0150  f_cand=1.0023  175.3 min into this m
+[    0.0 min |  0.5G] RUN_DIR pinned to cwd: /home/dcor/arielzoizner/projects/creativity-measure/notebooks/flowmap_smc_replay
+[    0.4 min | 10.2G] flow map weights loaded; score ready (denoiser capped at 24 rows)
+[    0.8 min | 10.2G] PHASE 1 GATE PASSED  latent_std=1.0345 (base FLUX 1.0150)  denoise-vs-map gap=0.1660  s/row=0.227
+[   19.6 min | 10.2G] reward built: refs (64, 65536)  S=1.0606  gamma=[0.889, 1.02e+03] x 30   ref bank 18.8 min
+[   19.6 min | 10.2G] lambda_s LOADED from lam_s_R64_seed7.json: 140.093  (E_p[f] = 1.0062 +- 0.0071, f(refs) = 0.9844)
+[   19.6 min | 10.2G] === agg=mean seed=102 K=4  m=1.25  lambda=175.12  (lambda_s=140.09)  M=8 N=16 eta=1.5 guid_window=(0.0, 1.0) ess_thr=0.5 gpu=NVIDIA L40S ===
+[   31.7 min | 10.2G]   [mean s102] K=4 m=1.25 step 1/16 t=0.0625  ESS/M=0.49  uniq/M=0.62  E_q[f]=0.9310  f_cand=0.9219  12.1 min into this m
+[   43.7 min | 10.2G]   [mean s102] K=4 m=1.25 step 2/16 t=0.1250  ESS/M=0.72  uniq/M=0.62  E_q[f]=0.9354  f_cand=0.9292  24.1 min into this m
+[   55.7 min | 10.2G]   [mean s102] K=4 m=1.25 step 3/16 t=0.1875  ESS/M=0.63  uniq/M=0.62  E_q[f]=0.9606  f_cand=0.9483  36.1 min into this m
+[   67.7 min | 10.2G]   [mean s102] K=4 m=1.25 step 4/16 t=0.2500  ESS/M=0.49  uniq/M=0.38  E_q[f]=0.9765  f_cand=0.9578  48.1 min into this m
+[   79.8 min | 10.2G]   [mean s102] K=4 m=1.25 step 5/16 t=0.3125  ESS/M=0.72  uniq/M=0.38  E_q[f]=0.9992  f_cand=0.9779  60.2 min into this m
+[   91.8 min | 10.2G]   [mean s102] K=4 m=1.25 step 6/16 t=0.3750  ESS/M=0.74  uniq/M=0.38  E_q[f]=1.0111  f_cand=0.9893  72.2 min into this m
+[  103.8 min | 10.2G]   [mean s102] K=4 m=1.25 step 7/16 t=0.4375  ESS/M=0.61  uniq/M=0.38  E_q[f]=1.0194  f_cand=0.9972  84.2 min into this m
+[  115.8 min | 10.2G]   [mean s102] K=4 m=1.25 step 8/16 t=0.5000  ESS/M=0.79  uniq/M=0.38  E_q[f]=1.0288  f_cand=1.0068  96.2 min into this m
+[  127.8 min | 10.2G]   [mean s102] K=4 m=1.25 step 9/16 t=0.5625  ESS/M=0.82  uniq/M=0.38  E_q[f]=1.0339  f_cand=1.0150  108.2 min into this m
+[  139.8 min | 10.2G]   [mean s102] K=4 m=1.25 step 10/16 t=0.6250  ESS/M=0.51  uniq/M=0.38  E_q[f]=1.0385  f_cand=1.0171  120.2 min into this m
+[  151.8 min | 10.2G]   [mean s102] K=4 m=1.25 step 11/16 t=0.6875  ESS/M=0.48  uniq/M=0.38  E_q[f]=1.0365  f_cand=1.0160  132.2 min into this m
+[  163.9 min | 10.2G]   [mean s102] K=4 m=1.25 step 12/16 t=0.7500  ESS/M=0.86  uniq/M=0.38  E_q[f]=1.0288  f_cand=1.0149  144.3 min into this m
+[  175.9 min | 10.2G]   [mean s102] K=4 m=1.25 step 13/16 t=0.8125  ESS/M=0.74  uniq/M=0.38  E_q[f]=1.0208  f_cand=1.0080  156.3 min into this m
+[  188.0 min | 10.2G]   [mean s102] K=4 m=1.25 step 14/16 t=0.8750  ESS/M=0.63  uniq/M=0.38  E_q[f]=1.0150  f_cand=1.0023  168.4 min into this m
+[  200.1 min | 10.2G]   [mean s102] K=4 m=1.25 step 15/16 t=0.9375  ESS/M=0.63  uniq/M=0.38  E_q[f]=1.0043  f_cand=0.9930  180.4 min into this m
+[  202.4 min | 10.2G]   [mean s102] K=4 m=1.25 step 16/16 t=1.0000  ESS/M=0.64  uniq/M=0.38  E_q[f]=1.0042  f_cand=1.0009  182.8 min into this m
+[  202.4 min | 10.2G] agg=mean seed=102 K=4 m=1.25 COMPLETED in 182.8 min (3.05 h)  vs projected 3.10 h   saved -> result_N8_K4_m1.25_seed102_mean102.pt
+[  202.4 min | 10.2G] agg=mean seed=102 K=4 m=1.25 SUMMARY  E_q[f] peak=1.0385 at step 10  terminal=1.0042  give-back=+0.0344  final uniq/M=0.375  resamples=3/16
+[  202.4 min | 10.2G] SUMMARY K=4 m=1.25 lam=175.1  peak=1.0385@10  terminal=1.0042  give-back=+0.0344  collapse@None  resamples=3  uniq/M=0.375
+[  202.5 min | 10.2G] wrote eqf_by_K_mean102.png with 1 curve(s)

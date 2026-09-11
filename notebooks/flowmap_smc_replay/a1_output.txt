@@ -1,0 +1,78 @@
+11 cells with r_k
+
+============================================================================================================
+Q1  per-aggregation mechanism metrics (all offline from the SAME recorded r_k)
+cell                             agg sd(U)/sd(V)  p in k^-p corr(V,f_fin) corr(U,f_fin)
+lt_N8_K16_m1.25_seed101_k16.pt  mean       0.607       1.11        -0.164         0.078
+lt_N8_K16_m1.25_seed101_k16.pt  soft       0.671       0.64        -0.166         0.116  <-- today
+lt_N8_K16_m1.25_seed101_k16.pt   max       0.754       0.15        -0.180         0.202
+
+lt_N8_K32_m1.25_seed101_k32.pt  mean       0.659       0.90         0.220         0.176
+lt_N8_K32_m1.25_seed101_k32.pt  soft       0.670       0.45         0.202         0.159  <-- today
+lt_N8_K32_m1.25_seed101_k32.pt   max       0.790       0.09         0.161         0.135
+
+ult_N8_K4_m1.25_seed101_k04.pt  mean       0.536       1.00         0.364         0.127
+ult_N8_K4_m1.25_seed101_k04.pt  soft       0.534       1.00         0.431         0.140  <-- today
+ult_N8_K4_m1.25_seed101_k04.pt   max       0.602       1.00         0.498         0.111
+
+lt_N8_K8_m1.25_seed101_k08b.pt  mean       0.317       1.21         0.846         0.066
+lt_N8_K8_m1.25_seed101_k08b.pt  soft       0.346       0.77         0.831         0.105  <-- today
+lt_N8_K8_m1.25_seed101_k08b.pt   max       0.425       0.05         0.784         0.114
+
+ial_N8_K8_m1.25_seed101_k08.pt  mean       0.504       1.20         0.905         0.489
+ial_N8_K8_m1.25_seed101_k08.pt  soft       0.563       0.69         0.883         0.554  <-- today
+ial_N8_K8_m1.25_seed101_k08.pt   max       0.657      -0.03         0.783         0.474
+
+_N8_K8_m1.25_seed101_k08max.pt  mean       0.318       1.18         0.944         0.045
+_N8_K8_m1.25_seed101_k08max.pt  soft       0.347       0.76         0.939         0.112  <-- today
+_N8_K8_m1.25_seed101_k08max.pt   max       0.423       0.05         0.917         0.147
+
+8_m1.25_seed102_max_s102max.pt  mean       0.608       1.20         0.696        -0.057
+8_m1.25_seed102_max_s102max.pt  soft       0.617       0.82         0.696        -0.025  <-- today
+8_m1.25_seed102_max_s102max.pt   max       0.712       0.29         0.789        -0.005
+
+m1.25_seed102_soft_s102soft.pt  mean       0.455       1.14         0.418         0.090
+m1.25_seed102_soft_s102soft.pt  soft       0.454       0.60         0.382         0.068  <-- today
+m1.25_seed102_soft_s102soft.pt   max       0.528       0.16         0.292         0.033
+
+8_m1.25_seed103_max_s103max.pt  mean       0.406       0.70         0.155         0.245
+8_m1.25_seed103_max_s103max.pt  soft       0.432       0.36         0.152         0.230  <-- today
+8_m1.25_seed103_max_s103max.pt   max       0.536       0.03         0.145         0.194
+
+m1.25_seed103_soft_s103soft.pt  mean       0.439       0.56         0.827         0.309
+m1.25_seed103_soft_s103soft.pt  soft       0.477       0.32         0.820         0.287  <-- today
+m1.25_seed103_soft_s103soft.pt   max       0.604       0.05         0.806         0.251
+
+_N8_K4_m1.25_seed101_k04max.pt  mean       0.622       1.00        -0.008         0.050
+_N8_K4_m1.25_seed101_k04max.pt  soft       0.652       1.00         0.009         0.069  <-- today
+_N8_K4_m1.25_seed101_k04max.pt   max       0.726       1.00         0.019         0.088
+
+============================================================================================================
+Q1b does the mean REORDER particles, or merely rescale like the max did?
+  cell                            spearman(mean,soft)  spearman(max,soft)
+  lt_N8_K16_m1.25_seed101_k16.pt                0.970               0.932
+  lt_N8_K32_m1.25_seed101_k32.pt                0.946               0.927
+  ult_N8_K4_m1.25_seed101_k04.pt                0.962               0.940
+  lt_N8_K8_m1.25_seed101_k08b.pt                0.962               0.975
+  ial_N8_K8_m1.25_seed101_k08.pt                0.922               0.956
+  _N8_K8_m1.25_seed101_k08max.pt                0.960               0.957
+  8_m1.25_seed102_max_s102max.pt                0.979               0.941
+  m1.25_seed102_soft_s102soft.pt                0.981               0.935
+  8_m1.25_seed103_max_s103max.pt                0.975               0.973
+  m1.25_seed103_soft_s103soft.pt                0.973               0.954
+  _N8_K4_m1.25_seed101_k04max.pt                0.921               0.943
+
+============================================================================================================
+Q2  V_soft/lam = mu_k + lam*sigma_k^2/2 -- which term does selection ride on?
+  cell                            corr(mu,f_fin)  corr(conv,f_fin)  conv share of sd(V)
+  lt_N8_K16_m1.25_seed101_k16.pt          -0.164            -0.258                0.151
+  lt_N8_K32_m1.25_seed101_k32.pt           0.220            -0.076                0.154
+  ult_N8_K4_m1.25_seed101_k04.pt           0.364             0.269                0.240
+  lt_N8_K8_m1.25_seed101_k08b.pt           0.846            -0.357                0.085
+  ial_N8_K8_m1.25_seed101_k08.pt           0.905            -0.594                0.190
+  _N8_K8_m1.25_seed101_k08max.pt           0.944            -0.457                0.087
+  8_m1.25_seed102_max_s102max.pt           0.696             0.305                0.108
+  m1.25_seed102_soft_s102soft.pt           0.418            -0.478                0.078
+  8_m1.25_seed103_max_s103max.pt           0.155             0.161                0.088
+  m1.25_seed103_soft_s103soft.pt           0.827            -0.166                0.093
+  _N8_K4_m1.25_seed101_k04max.pt          -0.008            -0.074                0.300

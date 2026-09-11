@@ -1,0 +1,20 @@
+[
+  {
+    "K": 4,
+    "M": 8,
+    "lam": 175.11683362216618,
+    "m_tilt": 1.25,
+    "gpu_name": "NVIDIA L40S",
+    "partial": false,
+    "steps_done": 16,
+    "collapse_step": null,
+    "resamples": 3,
+    "peak": 1.0385470390319824,
+    "peak_step": 10,
+    "terminal": 1.0041509866714478,
+    "give_back": 0.03439605236053467,
+    "pre_collapse_peak": 1.0385470390319824,
+    "final_uniq": 0.375,
+    "min_ess_over_M": 0.4763627052307129
+  }
+]

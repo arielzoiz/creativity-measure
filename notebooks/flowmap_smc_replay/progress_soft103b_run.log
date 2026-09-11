@@ -1,0 +1,26 @@
+[    0.0 min |  0.5G] RUN_DIR pinned to cwd: /home/dcor/arielzoizner/projects/creativity-measure/notebooks/flowmap_smc_replay
+[    1.4 min | 10.2G] flow map weights loaded; score ready (denoiser capped at 24 rows)
+[    1.9 min | 10.2G] PHASE 1 GATE PASSED  latent_std=1.0345 (base FLUX 1.0150)  denoise-vs-map gap=0.1660  s/row=0.230
+[   20.7 min | 10.2G] reward built: refs (64, 65536)  S=1.0606  gamma=[0.889, 1.02e+03] x 30   ref bank 18.8 min
+[   20.7 min | 10.2G] lambda_s LOADED from lam_s_R64_seed7.json: 140.093  (E_p[f] = 1.0062 +- 0.0071, f(refs) = 0.9844)
+[   20.7 min | 10.2G] === agg=soft seed=103 K=4  m=1.25  lambda=175.12  (lambda_s=140.09)  M=8 N=16 eta=1.5 guid_window=(0.0, 1.0) ess_thr=0.5 gpu=NVIDIA L40S ===
+[   32.8 min | 10.2G]   [soft s103] K=4 m=1.25 step 1/16 t=0.0625  ESS/M=0.74  uniq/M=1.00  E_q[f]=0.9206  f_cand=0.9176  12.1 min into this m
+[   44.9 min | 10.2G]   [soft s103] K=4 m=1.25 step 2/16 t=0.1250  ESS/M=0.50  uniq/M=0.62  E_q[f]=0.9310  f_cand=0.9227  24.2 min into this m
+[   57.0 min | 10.2G]   [soft s103] K=4 m=1.25 step 3/16 t=0.1875  ESS/M=0.26  uniq/M=0.38  E_q[f]=0.9576  f_cand=0.9444  36.3 min into this m
+[   69.1 min | 10.2G]   [soft s103] K=4 m=1.25 step 4/16 t=0.2500  ESS/M=0.63  uniq/M=0.38  E_q[f]=0.9800  f_cand=0.9639  48.3 min into this m
+[   81.2 min | 10.2G]   [soft s103] K=4 m=1.25 step 5/16 t=0.3125  ESS/M=0.54  uniq/M=0.38  E_q[f]=0.9985  f_cand=0.9783  60.4 min into this m
+[   93.2 min | 10.2G]   [soft s103] K=4 m=1.25 step 6/16 t=0.3750  ESS/M=0.49  uniq/M=0.25  E_q[f]=1.0153  f_cand=0.9897  72.5 min into this m
+[  105.4 min | 10.2G]   [soft s103] K=4 m=1.25 step 7/16 t=0.4375  ESS/M=0.72  uniq/M=0.25  E_q[f]=1.0289  f_cand=1.0032  84.6 min into this m
+[  117.4 min | 10.2G]   [soft s103] K=4 m=1.25 step 8/16 t=0.5000  ESS/M=0.75  uniq/M=0.25  E_q[f]=1.0434  f_cand=1.0153  96.7 min into this m
+[  129.5 min | 10.2G]   [soft s103] K=4 m=1.25 step 9/16 t=0.5625  ESS/M=0.45  uniq/M=0.25  E_q[f]=1.0562  f_cand=1.0255  108.8 min into this m
+[  141.6 min | 10.2G]   [soft s103] K=4 m=1.25 step 10/16 t=0.6250  ESS/M=0.69  uniq/M=0.25  E_q[f]=1.0515  f_cand=1.0354  120.9 min into this m
+[  153.8 min | 10.2G]   [soft s103] K=4 m=1.25 step 11/16 t=0.6875  ESS/M=0.71  uniq/M=0.25  E_q[f]=1.0480  f_cand=1.0331  133.0 min into this m
+[  165.9 min | 10.2G]   [soft s103] K=4 m=1.25 step 12/16 t=0.7500  ESS/M=0.66  uniq/M=0.25  E_q[f]=1.0398  f_cand=1.0273  145.1 min into this m
+[  177.9 min | 10.2G]   [soft s103] K=4 m=1.25 step 13/16 t=0.8125  ESS/M=0.67  uniq/M=0.25  E_q[f]=1.0297  f_cand=1.0202  157.2 min into this m
+[  190.0 min | 10.2G]   [soft s103] K=4 m=1.25 step 14/16 t=0.8750  ESS/M=0.63  uniq/M=0.25  E_q[f]=1.0213  f_cand=1.0139  169.3 min into this m
+[  202.3 min | 10.2G]   [soft s103] K=4 m=1.25 step 15/16 t=0.9375  ESS/M=0.56  uniq/M=0.25  E_q[f]=1.0097  f_cand=1.0044  181.6 min into this m
+[  204.7 min | 10.2G]   [soft s103] K=4 m=1.25 step 16/16 t=1.0000  ESS/M=0.57  uniq/M=0.25  E_q[f]=1.0099  f_cand=1.0124  183.9 min into this m
+[  204.7 min | 10.2G] agg=soft seed=103 K=4 m=1.25 COMPLETED in 183.9 min (3.07 h)  vs projected 3.10 h   saved -> result_N8_K4_m1.25_seed103_soft103b.pt
+[  204.7 min | 10.2G] agg=soft seed=103 K=4 m=1.25 SUMMARY  E_q[f] peak=1.0562 at step 9  terminal=1.0099  give-back=+0.0464  final uniq/M=0.250  resamples=4/16
+[  204.7 min | 10.2G] SUMMARY K=4 m=1.25 lam=175.1  peak=1.0562@9  terminal=1.0099  give-back=+0.0464  collapse@None  resamples=4  uniq/M=0.250
+[  204.8 min | 10.2G] wrote eqf_by_K_soft103b.png with 1 curve(s)
