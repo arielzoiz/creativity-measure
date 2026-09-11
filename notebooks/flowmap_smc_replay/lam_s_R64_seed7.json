@@ -1,0 +1,32 @@
+{
+  "lam_s": 140.09346689773295,
+  "f_heldout_mean": 1.006198525428772,
+  "f_heldout_std": 0.00713809160515666,
+  "f_refs_mean": 0.984375,
+  "S": 1.0605721473693848,
+  "R": 64,
+  "n_gamma": 30,
+  "num_eps": 3,
+  "dist_seed": 123,
+  "base_process": {
+    "schedule": "linear",
+    "n_steps": 16,
+    "ts": null,
+    "stoch_window": [
+      0.1,
+      1.0
+    ],
+    "inside_step": "ddpm_step",
+    "outside_step": "flow_map_step",
+    "img_shape": [
+      16,
+      64,
+      64
+    ],
+    "model_id": "black-forest-labs/FLUX.1-dev",
+    "prompt": "A dog",
+    "guidance": 1.0,
+    "max_denoiser_rows": 24,
+    "max_flow_map_rows": 24
+  }
+}
