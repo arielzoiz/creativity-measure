@@ -1,0 +1,96 @@
+loaded 11 FLUX cell(s) with r_k recorded
+
+====================================================================================================
+noise share = (sigma_n^2 + sigma_{n-1}^2) / Var(U_n), rescaled to K' = 4 -- the plan's configuration
+  > 0.50: CRN has something to cancel.   < 0.50: dV_true dominates, CRN is inapplicable.
+
+cell                                 K   M steps a=lam*sd_k     p    Var(U)   Var(dV)  share@K   share@4 sd(U)/sd(V) CRN floor  verdict
+result_N8_K16_m1.25_seed101_k16.pt  16   8    14      0.651  0.64    0.9534    0.7859    0.176     0.341       0.671     0.587  STOP (dV dominates)
+result_N8_K32_m1.25_seed101_k32.pt  32   8    14      0.797  0.45    1.0073    0.7999    0.206     0.400       0.670     0.587  STOP (dV dominates)
+/result_N8_K4_m1.25_seed101_k04.pt   4   8     --                     1.6435        --       --        --          --        --  cannot self-measure sigma (K < 8)
+result_N8_K8_m1.25_seed101_k08b.pt   8   8    14      0.571  0.77    0.3742    0.2719    0.273     0.391       0.346     0.290  STOP (dV dominates)
+partial_N8_K8_m1.25_seed101_k08.pt   8   8     6      0.811  0.69    0.6007    0.3832    0.362     0.479       0.563     0.438  STOP (dV dominates)
+sult_N8_K8_m1.25_seed101_k08max.pt   8   8    14      0.563  0.76    0.3609    0.2553    0.293     0.412       0.347     0.287  STOP (dV dominates)
+N8_K8_m1.25_seed102_max_s102max.pt   8   8    14      0.526  0.82    0.3600    0.2964    0.177     0.275       0.617     0.541  STOP (dV dominates)
+_K8_m1.25_seed102_soft_s102soft.pt   8   8    14      0.518  0.60    0.3104    0.2295    0.261     0.349       0.454     0.392  STOP (dV dominates)
+N8_K8_m1.25_seed103_max_s103max.pt   8   8    14      0.565  0.36    0.4518    0.2758    0.395     0.454       0.432     0.322  STOP (dV dominates)
+_K8_m1.25_seed103_soft_s103soft.pt   8   8    14      0.591  0.32    0.5776    0.3903    0.324     0.374       0.477     0.377  STOP (dV dominates)
+tial_N8_K4_m1.25_seed101_k04max.pt   4   8     --                     1.9852        --       --        --          --        --  cannot self-measure sigma (K < 8)
+<toy lam=4, M=64, K=256>           256  64    14      0.352  0.79    0.1205    0.1191    0.013     0.256       0.326     0.317  STOP (dV dominates)
+<toy lam=8, M=64, K=256>           256  64    14      0.911  0.50    1.0256    0.9729    0.054     0.317       0.355     0.336  STOP (dV dominates)
+<toy lam=16, M=64, K=256>          256  64    14      1.925  0.27    5.0978    4.1729    0.191     0.413       0.590     0.501  STOP (dV dominates)
+<toy lam=32, M=64, K=256>          256  64    14      3.878  0.17   21.5649   14.8877    0.327     0.489       0.836     0.628  STOP (dV dominates)
+lam=32 NO-antithetic, M=64, K=256> 256  64    14      3.869  0.42   20.6488   17.2755    0.163     0.529       0.827     0.705  PROCEED (residual dominates)
+
+====================================================================================================
+does the increment predict the endpoint? mean over steps of corr(., f at t=1), lineages traced through the parent maps
+  cell                                corr(V,f_fin)  corr(U,f_fin)  steps
+  result_N8_K16_m1.25_seed101_k16.pt         -0.166          0.116     14
+  result_N8_K32_m1.25_seed101_k32.pt          0.202          0.159     11
+  /result_N8_K4_m1.25_seed101_k04.pt          0.431          0.140     12
+  result_N8_K8_m1.25_seed101_k08b.pt          0.831          0.105     14
+  partial_N8_K8_m1.25_seed101_k08.pt          0.883          0.554      5
+  sult_N8_K8_m1.25_seed101_k08max.pt          0.939          0.112     14
+  N8_K8_m1.25_seed102_max_s102max.pt          0.696         -0.025     14
+  _K8_m1.25_seed102_soft_s102soft.pt          0.382          0.068     14
+  N8_K8_m1.25_seed103_max_s103max.pt          0.152          0.230     14
+  _K8_m1.25_seed103_soft_s103soft.pt          0.820          0.287     10
+  tial_N8_K4_m1.25_seed101_k04max.pt          0.009          0.069      9
+  <toy lam=4, M=64, K=256>                    0.790          0.264     14
+  <toy lam=8, M=64, K=256>                    0.844          0.172     14
+  <toy lam=16, M=64, K=256>                   0.523          0.095     14
+  <toy lam=32, M=64, K=256>                   0.713          0.425      7
+  lam=32 NO-antithetic, M=64, K=256>          0.659          0.356      6
+
+====================================================================================================
+additive-model check, WITHIN cell: Var(U) rebuilt from a real 4-column subset vs Var(dV) + 2 sigma^2(4)
+  result_N8_K16_m1.25_seed101_k16.pt measured   0.7608   predicted   1.2723   ratio  0.60x
+  result_N8_K32_m1.25_seed101_k32.pt measured   1.1564   predicted   1.2928   ratio  0.89x
+  result_N8_K8_m1.25_seed101_k08b.pt measured   0.4591   predicted   0.4634   ratio  0.99x
+  partial_N8_K8_m1.25_seed101_k08.pt measured   0.7793   predicted   0.7599   ratio  1.03x
+  sult_N8_K8_m1.25_seed101_k08max.pt measured   0.4397   predicted   0.4498   ratio  0.98x
+  N8_K8_m1.25_seed102_max_s102max.pt measured   0.5252   predicted   0.4316   ratio  1.22x
+  _K8_m1.25_seed102_soft_s102soft.pt measured   0.4438   predicted   0.3411   ratio  1.30x
+  N8_K8_m1.25_seed103_max_s103max.pt measured   0.4929   predicted   0.4744   ratio  1.04x
+  _K8_m1.25_seed103_soft_s103soft.pt measured   0.5936   predicted   0.5953   ratio  1.00x
+  <toy lam=4, M=64, K=256>           measured   0.1520   predicted   0.1609   ratio  0.94x
+  <toy lam=8, M=64, K=256>           measured   1.5316   predicted   1.4311   ratio  1.07x
+  <toy lam=16, M=64, K=256>          measured   7.9082   predicted   7.0902   ratio  1.12x
+  <toy lam=32, M=64, K=256>          measured  34.5885   predicted  28.9724   ratio  1.19x
+  lam=32 NO-antithetic, M=64, K=256> measured  30.9728   predicted  37.5423   ratio  0.83x
+
+====================================================================================================
+sigma_eps^2 vs subset size (pair-respecting). p is the fitted exponent in sigma^2 ~ k^-p; independent draws
+through a linear estimator would give p = 1, and p < 1 is itself why raising K saturated.
+  result_N8_K16_m1.25_seed101_k16.pt k=1: 0.66  k=2: 0.2611  k=4: 0.2018  k=8: 0.1078
+                                     ratios (p=1 predicts 2.00x): 2.53x  1.29x  1.87x   fitted p = 0.64
+  result_N8_K32_m1.25_seed101_k32.pt k=1: 0.9298  k=2: 0.3756  k=4: 0.2614  k=8: 0.1882  k=16: 0.1471
+                                     ratios (p=1 predicts 2.00x): 2.48x  1.44x  1.39x  1.28x   fitted p = 0.45
+  /result_N8_K4_m1.25_seed101_k04.pt k=1: 1.43  k=2: 0.388
+                                     ratios (p=1 predicts 2.00x): 3.68x   fitted p = 1.00
+  result_N8_K8_m1.25_seed101_k08b.pt k=1: 0.4559  k=2: 0.1601  k=4: 0.09362
+                                     ratios (p=1 predicts 2.00x): 2.85x  1.71x   fitted p = 0.77
+  partial_N8_K8_m1.25_seed101_k08.pt k=1: 0.7816  k=2: 0.2932  k=4: 0.1813
+                                     ratios (p=1 predicts 2.00x): 2.67x  1.62x   fitted p = 0.69
+  sult_N8_K8_m1.25_seed101_k08max.pt k=1: 0.4486  k=2: 0.1614  k=4: 0.09538
+                                     ratios (p=1 predicts 2.00x): 2.78x  1.69x   fitted p = 0.76
+  N8_K8_m1.25_seed102_max_s102max.pt k=1: 0.3643  k=2: 0.1085  k=4: 0.06151
+                                     ratios (p=1 predicts 2.00x): 3.36x  1.76x   fitted p = 0.82
+  _K8_m1.25_seed102_soft_s102soft.pt k=1: 0.3568  k=2: 0.101  k=4: 0.06647
+                                     ratios (p=1 predicts 2.00x): 3.53x  1.52x   fitted p = 0.60
+  N8_K8_m1.25_seed103_max_s103max.pt k=1: 0.4329  k=2: 0.1537  k=4: 0.1196
+                                     ratios (p=1 predicts 2.00x): 2.82x  1.29x   fitted p = 0.36
+  _K8_m1.25_seed103_soft_s103soft.pt k=1: 0.4716  k=2: 0.1512  k=4: 0.1215
+                                     ratios (p=1 predicts 2.00x): 3.12x  1.25x   fitted p = 0.32
+  tial_N8_K4_m1.25_seed101_k04max.pt k=1: 1.672  k=2: 0.4833
+                                     ratios (p=1 predicts 2.00x): 3.46x   fitted p = 1.00
+  <toy lam=4, M=64, K=256>           k=1: 0.1595  k=2: 0.03329  k=4: 0.02064  k=8: 0.01191  k=16: 0.006437
+                                     ratios (p=1 predicts 2.00x): 4.79x  1.61x  1.73x  1.85x   fitted p = 0.79
+  <toy lam=8, M=64, K=256>           k=1: 1.039  k=2: 0.2887  k=4: 0.221  k=8: 0.1553  k=16: 0.1018
+                                     ratios (p=1 predicts 2.00x): 3.60x  1.31x  1.42x  1.53x   fitted p = 0.50
+  <toy lam=16, M=64, K=256>          k=1: 4.653  k=2: 1.597  k=4: 1.433  k=8: 1.183  k=16: 0.9219
+                                     ratios (p=1 predicts 2.00x): 2.91x  1.11x  1.21x  1.28x   fitted p = 0.27
+  <toy lam=32, M=64, K=256>          k=1: 18.87  k=2: 7.223  k=4: 6.954  k=8: 6.111  k=16: 5.107
+                                     ratios (p=1 predicts 2.00x): 2.61x  1.04x  1.14x  1.20x   fitted p = 0.17
+  lam=32 NO-antithetic, M=64, K=256> k=1: 18.75  k=2: 13.02  k=4: 9.408  k=8: 6.954  k=16: 5.453
+                                     ratios (p=1 predicts 2.00x): 1.44x  1.38x  1.35x  1.28x   fitted p = 0.42
