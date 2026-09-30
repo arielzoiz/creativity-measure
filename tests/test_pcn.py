@@ -28,6 +28,8 @@ from creativity_measure import (
 
 dtype = torch.float64
 XLIM = (-6.0, 6.0)
+
+pytestmark = pytest.mark.usefixtures("cpu_device")
 YLIM = (-6.0, 6.0)
 
 

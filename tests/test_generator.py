@@ -15,6 +15,8 @@ from creativity_measure import (
 dtype = torch.float64
 XLIM = (-6.0, 6.0)
 
+pytestmark = pytest.mark.usefixtures("cpu_device")
+
 
 # --- Ring-GMM-with-hole (has log_p_Y; mirrors tests/test_adaptive_tempering_smc.py) -------------------------------
 

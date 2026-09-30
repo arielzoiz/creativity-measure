@@ -33,6 +33,8 @@ from creativity_measure.adaptive_tempering_smc import (
 from creativity_measure.refset import RandomRefs, WeightedFPSRefs
 
 dtype = torch.float64
+
+pytestmark = pytest.mark.usefixtures("cpu_device")
 XLIM = (-6.0, 6.0)
 YLIM = (-6.0, 6.0)
 

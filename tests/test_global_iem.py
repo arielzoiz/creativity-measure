@@ -4,6 +4,7 @@ from torch.distributions import MultivariateNormal, Categorical, MixtureSameFami
 import math
 
 from creativity_measure.density import Density
+from creativity_measure.device import set_default_device
 from creativity_measure.distances.global_iem import GlobalIEMDistance
 
 # ---------------------------------------------------------------------------
@@ -58,7 +59,11 @@ p = Density(log_pX, log_pY, sample_fn=sampler, d=2)
 gammas = torch.logspace(-10, 10, 40, base=2, dtype=dtype)
 
 X      = torch.tensor([[2., 0.], [0., 0.]], dtype=dtype)   # (2, 2)
+# Pin CPU for this module-level sample: default_device() auto-selects CUDA on a GPU host, which
+# would put x_refs on a different device than the CPU literal X above.
+set_default_device("cpu")
 x_refs = p.sample(4, seed=0)                               # (4, 2)
+set_default_device(None)
 
 
 # ---------------------------------------------------------------------------

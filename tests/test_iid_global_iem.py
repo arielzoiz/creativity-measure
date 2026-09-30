@@ -11,6 +11,7 @@ import torch
 from torch.distributions import Categorical, MixtureSameFamily, MultivariateNormal
 
 from creativity_measure.density import Density
+from creativity_measure.device import set_default_device
 from creativity_measure.distances.base import ExpectedDistance
 from creativity_measure.distances.global_iem import GlobalIEMDistance, SquaredGlobalIEMDistance
 from creativity_measure.distances.iid_global_iem import (
@@ -75,7 +76,11 @@ LO, HI = 2.0 ** -10, 2.0 ** 10
 G0 = 12
 gammas, gweights = log_uniform_gammas(LO, HI, G0, seed=3, dtype=dtype)
 X = torch.tensor([[2., 0.], [0., 0.], [-1., 0.5]], dtype=dtype)             # (3, 2)
+# Pin CPU for this module-level sample: default_device() auto-selects CUDA on a GPU host, which
+# would put x_refs on a different device than the CPU literal X above.
+set_default_device("cpu")
 x_refs = p.sample(4, seed=0)                                                # (4, 2)
+set_default_device(None)
 
 
 def make(**kw) -> SquaredIIDGlobalIEMDistance:

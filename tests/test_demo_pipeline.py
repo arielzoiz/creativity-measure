@@ -33,6 +33,11 @@ from creativity_measure import (
 # ---------------------------------------------------------------------------
 
 dtype = torch.float64
+
+# Module-scoped (not the default function-scoped `cpu_device`): grid/x_refs below are module-scoped
+# fixtures, and cpu_device_module must be set up before them to pin CPU when they sample.
+pytestmark = pytest.mark.usefixtures("cpu_device_module")
+
 N_TOTAL, HOLE_IDX, RADIUS, SIGMA = 12, 0, 4.0, 0.3
 _angles = 2 * math.pi * torch.arange(N_TOTAL, dtype=dtype) / N_TOTAL
 all_means = torch.stack(
