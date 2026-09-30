@@ -123,6 +123,10 @@ Rules are general; the pCN parentheticals are Algorithm 1, the only sampler with
 
 - `distances/` — IEM variants (`GlobalIEMDistance`, `SquaredGlobalIEMDistance`, `GeneralizedGlobalIEMDistance` with $f$ = identity/squared, `LocalIEMDistance`, `LpDistance`),
   plus `edm_adapter.py` (`Denoiser` → `score_fn` via Tweedie).
+  `iid_global_iem.py` (`SquaredIIDGlobalIEMDistance`) is the loop-free, frozen **i.i.d. Monte-Carlo** counterpart of `SquaredGlobalIEMDistance`
+  (Brownian classes untouched): the caller draws $(\gamma_g, w_g)$ with `utils.log_uniform_gammas`, eps is i.i.d. $\sqrt{\gamma}\,\varepsilon$, cost $G\,N_{\epsilon}(R+B)$ rows cold and
+  $G\,N_{\epsilon}B$ warm. Its `expected()` is the closed-form mean over refs (no $(B,R,d)$ tensor) and is differentiable in $x$ given a differentiable `score_fn`.
+  **$\lambda_{s}$ must be re-measured for it** — $f$'s spread differs from the Brownian grid's; `notebooks/iid_iem_flux_check/` holds the FLUX agreement check (status in its `STATUS.md`).
 - `refset/` — reference selectors (`RandomRefs`, `FPSRefs`, `WeightedFPSRefs`) with auto-$R$ by a weighted-$\tau$ rank-stability rule; `.reward(R)` / `.normalized_reward(R)`
   produce the frozen reward. **The auto-$R$ rule is biased at high $d$ and the FPS selectors degenerate there** — use `RandomRefs` with an explicit $R$ (currently $R = 64$);
   see Established Findings and `notebooks/refset_auto_r/`.

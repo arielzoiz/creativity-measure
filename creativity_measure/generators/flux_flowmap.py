@@ -348,7 +348,12 @@ def flow_map_denoiser(flow_map: FlowMap, schedule: Schedule) -> Denoiser:
     The ODE uses one sigma across the batch, so a batched ``sigma`` is read at index 0.
     """
     def denoiser(x_sigma: Float[Tensor, "B ..."], sigma: Float[Tensor, "B"]) -> Float[Tensor, "B ..."]:
-        s = float(sigma.reshape(-1)[0])
+        sig = sigma.reshape(-1)
+        s = float(sig[0])
+        # One flow-map time per call: a batch with mixed sigmas would silently be denoised at sigma[0].
+        if sig.numel() > 1 and not bool((sig == sig[0]).all()):
+            raise ValueError("flow_map_denoiser needs one sigma per call; got mixed sigmas in a batch "
+                             "(per-row gamma / batched_gamma=True is not supported for the flow map)")
         t = schedule.t_of_snr(s * s)
         shape = x_sigma.shape
         y = x_sigma.reshape(shape[0], -1)

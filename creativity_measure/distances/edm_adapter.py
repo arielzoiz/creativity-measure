@@ -70,8 +70,8 @@ def chunked_denoiser(denoiser: Denoiser, max_rows: int) -> Denoiser:
 def edm_score_fn(denoiser: Denoiser, img_shape: tuple[int, ...] | None = None) -> ScoreFn:
     """Wrap an EDM-style denoiser D(y_sigma, sigma) = E[X | y_sigma] into a marginal-score ScoreFn.
 
-    The returned score_fn(y, gamma) = grad_y log p_Y(y, gamma) in this repo's gamma-convention,
-    suitable as the score_fn= argument of GlobalIEMDistance / GeneralizedGlobalIEMDistance.
+    The returned score_fn(y, gamma) = grad_y log p_Y(y, gamma) in this repo's gamma-convention (gamma scalar, or (B,)
+    for one level per row), suitable as the score_fn= argument of GlobalIEMDistance / GeneralizedGlobalIEMDistance.
 
     Args:
         denoiser:  callable (y_sigma, sigma) -> x_pred; works on flat (B, d) inputs, or on
@@ -81,11 +81,13 @@ def edm_score_fn(denoiser: Denoiser, img_shape: tuple[int, ...] | None = None) -
     The caller must restrict the gamma-grid to the denoiser's valid sigma-range, i.e.
     gamma in [1/sigma_max^2, 1/sigma_min^2].
     """
-    def score_fn(y: Float[Tensor, "B d"], gamma: Float[Tensor, ""]) -> Float[Tensor, "B d"]:
+    def score_fn(y: Float[Tensor, "B d"], gamma: Float[Tensor, ""] | Float[Tensor, "B"]) -> Float[Tensor, "B d"]:
         sigma = gamma_to_sigma(gamma)                          # 1 / sqrt(gamma)
-        y_sigma = y / gamma                                    # signal-space obs  x + sigma*eps
+        # gamma is a scalar (one level for the whole batch) or (B,) (one level per row, used by the fused i.i.d.
+        # bank). A scalar reshapes to (1, 1, ...) so the division below is elementwise-identical to y / gamma.
+        y_sigma = y / gamma.reshape(-1, *([1] * (y.ndim - 1)))   # signal-space obs  x + sigma*eps
         x_in = y_sigma if img_shape is None else y_sigma.reshape(y.shape[0], *img_shape)
-        sigma_b = sigma.reshape(1).expand(y.shape[0])          # (B,)
+        sigma_b = sigma.reshape(-1).expand(y.shape[0])         # (B,)
         x_pred = denoiser(x_in, sigma_b).reshape(y.shape)      # E[X | y_sigma]
         return x_pred - y_sigma                                # E[X|y] - y/gamma = marginal score
     return score_fn

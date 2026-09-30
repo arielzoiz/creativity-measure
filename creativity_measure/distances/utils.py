@@ -1,4 +1,6 @@
 # Shared helpers for the IEM distances.
+import math
+
 import torch
 from jaxtyping import Float
 from torch import Tensor
@@ -28,3 +30,47 @@ def simulate_brownian(
     W[0] = W0
     W[1:] = W0 + torch.cumsum(dW, dim=0)     # cumulative sum of increments, shifted by W0
     return W
+
+
+def log_uniform_gammas(
+    gamma_lo: float,
+    gamma_hi: float,
+    num_gamma: int,
+    seed: int,
+    *,
+    device: torch.device | None = None,
+    dtype: torch.dtype | None = None,
+) -> tuple[Float[Tensor, "G"], Float[Tensor, "G"]]:
+    """Caller-side: G i.i.d. log-uniform draws on [gamma_lo, gamma_hi] and their importance weights.
+
+    gamma_g = gamma_lo * (gamma_hi / gamma_lo)^u_g with u_g ~ U(0, 1), i.e. density 1/(gamma * L) with
+    L = ln(gamma_hi / gamma_lo). The weight w_g = gamma_g * L / G is the inverse density over G, so
+    sum_g w_g h(gamma_g) is an unbiased Monte-Carlo estimate of the integral of h over [gamma_lo, gamma_hi].
+
+    Drawn ONCE per run (a frozen bank): the reward stays a deterministic function of x. Returned sorted by
+    gamma, which only makes diagnostics readable -- the estimate is order-invariant.
+    """
+    L = math.log(gamma_hi / gamma_lo)
+    generator = torch.Generator(device=device).manual_seed(seed)
+    u = torch.rand(num_gamma, device=device, dtype=dtype, generator=generator)
+    gammas = (gamma_lo * torch.exp(L * u)).sort().values
+    return gammas, gammas * (L / num_gamma)
+
+
+def simulate_iid_noise(
+    gammas: Float[Tensor, "G"],
+    num_eps: int,
+    d: int,
+    seed: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> Float[Tensor, "G N_eps 1 d"]:
+    """The i.i.d. counterpart of `simulate_brownian`: W_g = sqrt(gamma_g) * eps, eps ~ N(0, I) i.i.d. over (g, eps).
+
+    For f = identity the IEM integrand at each gamma depends only on the MARGINAL law W_gamma ~ N(0, gamma I),
+    never on how W is correlated across gammas, so dropping the Brownian coupling leaves the expectation
+    unchanged. Same (G, N_eps, 1, d) layout as `simulate_brownian`, so downstream code indexes W[g] alike.
+    """
+    generator = torch.Generator(device=device).manual_seed(seed)
+    eps = torch.randn(gammas.shape[0], num_eps, 1, d, device=device, dtype=dtype, generator=generator)
+    return gammas.to(device=device, dtype=dtype).sqrt().view(-1, 1, 1, 1) * eps

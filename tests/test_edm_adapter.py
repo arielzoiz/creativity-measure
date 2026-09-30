@@ -129,3 +129,67 @@ def test_chunked_denoiser_rejects_nonpositive_max_rows():
         except ValueError:
             continue
         raise AssertionError(f"max_rows={bad} should have raised ValueError")
+
+
+# ---------------------------------------------------------------------------
+# Per-row gamma: the fused i.i.d. bank scores G*N_eps*P rows in one call, each row at its own level
+# ---------------------------------------------------------------------------
+
+def per_row_denoiser(y_sigma, sigma):
+    """Like mock_denoiser but asserts sigma really is one value per row (no scalar leaking through)."""
+    assert sigma.shape == (y_sigma.shape[0],)
+    return y_sigma / (1.0 + sigma.reshape(-1, 1) ** 2)
+
+
+def test_adapter_accepts_per_row_gamma_and_matches_scalar_loop():
+    score_fn = edm_score_fn(per_row_denoiser)
+    y = torch.randn(6, 2, dtype=dtype)
+    gv = torch.tensor([2.0 ** -4, 0.3, 1.0, 2.0, 9.0, 2.0 ** 4], dtype=dtype)
+    fused = score_fn(y, gv)
+    looped = torch.cat([score_fn(y[i:i + 1], gv[i]) for i in range(6)], dim=0)
+    assert torch.allclose(fused, looped, atol=1e-12)
+    assert torch.allclose(fused, -y / (gv.reshape(-1, 1) ** 2 + gv.reshape(-1, 1)))
+
+
+def test_adapter_scalar_gamma_is_bitwise_unchanged():
+    """A scalar gamma must give exactly y/gamma-style arithmetic as before the per-row change."""
+    score_fn = edm_score_fn(mock_denoiser)
+    y = torch.randn(5, 3, dtype=dtype)
+    gamma = torch.tensor(0.7, dtype=dtype)
+    y_sigma = y / gamma
+    want = mock_denoiser(y_sigma, gamma.rsqrt().reshape(1).expand(5)) - y_sigma
+    assert torch.equal(score_fn(y, gamma), want)
+
+
+def test_adapter_per_row_gamma_with_img_shape_and_chunking():
+    score_fn = edm_score_fn(chunked_denoiser(per_row_denoiser_img, 2), img_shape=(1, 2, 2))
+    y = torch.randn(5, 4, dtype=dtype)
+    gv = torch.tensor([0.1, 0.5, 1.0, 3.0, 8.0], dtype=dtype)
+    got = score_fn(y, gv)
+    want = torch.cat([edm_score_fn(per_row_denoiser_img, img_shape=(1, 2, 2))(y[i:i + 1], gv[i])
+                      for i in range(5)], dim=0)
+    assert torch.allclose(got, want, atol=1e-12)
+
+
+def per_row_denoiser_img(y_sigma, sigma):
+    return y_sigma / (1.0 + sigma.reshape(-1, 1, 1, 1) ** 2)
+
+
+def test_flow_map_denoiser_rejects_mixed_sigma_but_accepts_uniform():
+    import pytest
+
+    from creativity_measure import LinearSchedule
+    from creativity_measure.generators.flux_flowmap import flow_map_denoiser
+
+    class Stub:
+        def map(self, x, t_from, t_to):
+            raise AssertionError("must call denoise")
+
+        def denoise(self, x, t):
+            return x
+
+    d = flow_map_denoiser(Stub(), LinearSchedule())
+    y = torch.randn(3, 4)
+    d(y, torch.full((3,), 0.5))                                   # uniform: fine
+    with pytest.raises(ValueError, match="one sigma per call"):
+        d(y, torch.tensor([0.5, 1.0, 2.0]))                       # mixed: would silently use sigma[0]

@@ -5,7 +5,7 @@ from jaxtyping import Float
 from torch import Tensor
 
 from creativity_measure.density import Density
-from creativity_measure.distances.base import Distance
+from creativity_measure.distances.base import Distance, ExpectedDistance
 
 
 def expected_distance(
@@ -22,6 +22,8 @@ def expected_distance(
         Weighted selectors (WeightedFPSRefs) must pass their weights here, otherwise the the non-uniform
         weighting is silently dropped.
     """
+    if isinstance(distance, ExpectedDistance):            # closed-form mean over refs, no (B, R, d) tensor
+        return distance.expected(X, x_refs, weights)
     pw = distance.pairwise(X, x_refs)                     # (B, R)
     if weights is None:
         return pw.mean(dim=1)
