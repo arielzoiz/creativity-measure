@@ -10,6 +10,7 @@ the sampler must reproduce the untilted base trajectory particle-for-particle.
 """
 
 import math
+from typing import Any
 
 import pytest
 import torch
@@ -79,7 +80,10 @@ def _reward(n_refs: int = 4, seed: int = 0) -> Reward:
 
 
 def _run(lam: float, backend: ToyBackend, **kw) -> DiamondSMCResult:
-    defaults = dict(n_steps=4, mc_samples=3, seed=0)
+    # dict[str, Any]: callers mix in bools (final_resample, verbose) via **kw, which would
+    # otherwise widen only the *runtime* dict while pyright keeps inferring dict[str, int]
+    # from the literal defaults below, and then reject those bools at the **defaults spread.
+    defaults: dict[str, Any] = dict(n_steps=4, mc_samples=3, seed=0)
     defaults.update(kw)
     return diamond_smc_sample(_reward(), lam, 8, backend=backend, **defaults)
 

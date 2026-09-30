@@ -164,7 +164,9 @@ def test_intermediate_potential_is_lambda_times_the_per_particle_max():
     res = _run_max(reward, lam=lam, n_particles=6, mc_samples=4, guid_window=FULL_WINDOW,
                    record_r_k=True)
     n = next(i for i, r in enumerate(res.r_k_history) if r is not None)
-    assert torch.allclose(res.V_history[n], lam * res.r_k_history[n].max(dim=1).values)
+    r_k = res.r_k_history[n]
+    assert r_k is not None
+    assert torch.allclose(res.V_history[n], lam * r_k.max(dim=1).values)
 
 
 # ---------------------------------------------------------------------------------------------------

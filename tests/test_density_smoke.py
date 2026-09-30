@@ -30,6 +30,7 @@ def test_log_p_X_shape():
 
 
 def test_log_p_Y_shape():
+    assert p.log_p_Y is not None
     out = p.log_p_Y(torch.zeros(3, 2, dtype=dtype), torch.tensor(1.0))
     assert out.shape == (3,), f"Expected (3,), got {out.shape}"
 
