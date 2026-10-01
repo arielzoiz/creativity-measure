@@ -6,7 +6,7 @@ control" -- the untilted base process alone has been measured to give back sever
 tilt at all, cf. flowmap_smc_k_sweep/RESULTS.md).
 
 CONVENTION NOTE (this repo has a documented history of exactly this class of error, see
-creativity_measure/flow_guided.py's module docstring): every t here is diffusers-native
+creativity_measure/samplers/flow_guided.py's module docstring): every t here is diffusers-native
 (t=1 noise, t=0 data). The artifact-free endpoint for reading E_q[f] is therefore t_end=0, the
 OPPOSITE polarity to CLAUDE.md's "only t=1 is artifact-free" note, which was written for
 flowmap_smc's t=0-noise/t=1-data convention. Always read this sweep's f at t_end=0.
@@ -38,7 +38,7 @@ from creativity_measure import (                                          # noqa
     NormalizedExpectedDistanceReward, SquaredIIDGlobalIEMDistance, log_uniform_gammas,
 )
 from creativity_measure.distances.edm_adapter import edm_score_fn                          # noqa: E402
-from creativity_measure.flow_guided import flow_guided_sample                              # noqa: E402
+from creativity_measure.samplers.flow_guided import flow_guided_sample                              # noqa: E402
 from creativity_measure.generators.flux import flux_edm_denoiser, flux_velocity_fn          # noqa: E402
 
 RESULTS = os.path.join(HERE, "guided_sweep_results.json")

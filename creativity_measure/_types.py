@@ -11,8 +11,8 @@ Sampler = Callable[[int, Generator | None], Float[Tensor, "n d"]]
 
 # Flow-matching velocity, diffusers-native t (t = 1 pure noise, t = 0 clean data): v_theta(x_t, t) -> v.
 # NOTE the polarity: this is the OPPOSITE of FlowMap below, which uses t = 0 noise / t = 1 data (that
-# repo-internal convention, see flowmap_smc.py). Getting this backwards fails silently -- see
-# creativity_measure/flow_guided.py's module docstring for the full history of this exact trap.
+# repo-internal convention, see samplers/flowmap_smc.py). Getting this backwards fails silently -- see
+# creativity_measure/samplers/flow_guided.py's module docstring for the full history of this exact trap.
 VelocityFn = Callable[[Float[Tensor, "B d"], float], Float[Tensor, "B d"]]
 
 
@@ -45,11 +45,11 @@ class SampleableDensity(Protocol):
 
 
 # ---------------------------------------------------------------------------------------------------
-# Flow-map vocabulary (consumed by ``creativity_measure.flowmap_smc``)
+# Flow-map vocabulary (consumed by ``creativity_measure.samplers.flowmap_smc``)
 #
 # All three are structural, so a notebook can satisfy them with a small closure-holding object and no
 # inheritance -- the same freedom ``PCNKernel(generator_fn=...)`` gives today. Concrete implementations
-# (``LinearSchedule``, ``ddpm_step``, ``flow_map_step``) live in ``flowmap_smc.py``.
+# (``LinearSchedule``, ``ddpm_step``, ``flow_map_step``) live in ``samplers/flowmap_smc.py``.
 # ---------------------------------------------------------------------------------------------------
 
 @runtime_checkable

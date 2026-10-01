@@ -23,7 +23,7 @@ from creativity_measure import (
     Reward,
     IndependenceKernel,
 )
-from creativity_measure.adaptive_tempering_smc import (
+from creativity_measure.samplers.adaptive_tempering_smc import (
     _ess_from_logw,
     _systematic_resample,
     _next_dbeta,

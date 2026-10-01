@@ -16,7 +16,7 @@ import pytest
 import torch
 
 from creativity_measure import LpDistance, NormalizedExpectedDistanceReward, Reward
-from creativity_measure.diamond_smc import (
+from creativity_measure.samplers.diamond_smc import (
     DiamondMapBackend,
     DiamondSMCResult,
     _soft_value,

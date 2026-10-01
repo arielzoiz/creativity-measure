@@ -42,7 +42,7 @@ from creativity_measure import (                                                
     NormalizedExpectedDistanceReward, SquaredIIDGlobalIEMDistance, log_uniform_gammas,
 )
 from creativity_measure.distances.edm_adapter import chunked_denoiser, edm_score_fn          # noqa: E402
-from creativity_measure.flow_guided import flow_guided_sample                                # noqa: E402
+from creativity_measure.samplers.flow_guided import flow_guided_sample                                # noqa: E402
 from creativity_measure.generators.base import edm_generator                                 # noqa: E402
 from creativity_measure.generators.flux import flux_edm_denoiser, flux_velocity_fn           # noqa: E402
 

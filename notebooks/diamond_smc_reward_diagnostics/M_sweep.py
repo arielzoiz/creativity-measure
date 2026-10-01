@@ -37,7 +37,7 @@ M_LIST = [16, 32, 64, 128]
 
 def main() -> int:
     info = paths.preflight()
-    from creativity_measure.diamond_smc import diamond_smc_sample
+    from creativity_measure.samplers.diamond_smc import diamond_smc_sample
 
     backend, reward, lam_s = reward_common.build_backend_and_reward(info, probe_m=16)
     print(

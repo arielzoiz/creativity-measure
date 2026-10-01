@@ -20,9 +20,9 @@ import math
 import pytest
 import torch
 
-from creativity_measure.flowmap_smc import LinearSchedule, _soft_value, flowmap_smc_sample
-from creativity_measure import flowmap_smc
-from creativity_measure.flowmap_smc_max import (
+from creativity_measure.samplers.flowmap_smc import LinearSchedule, _soft_value, flowmap_smc_sample
+from creativity_measure.samplers import flowmap_smc
+from creativity_measure.samplers.flowmap_smc_max import (
     _max_value,
     _override_value_agg,
     flowmap_smc_max_sample,
@@ -204,7 +204,7 @@ def test_the_module_is_a_complete_notebook_surface():
     The reference files key ``p`` on ``ddpm_step.__name__``, so a duplicate would pass
     ``_assert_same_p`` while defining a different process. Identity is the only check that catches it.
     """
-    import creativity_measure.flowmap_smc_max as fmm
+    import creativity_measure.samplers.flowmap_smc_max as fmm
 
     # Exactly the flowmap names the k-sweep notebook imports, plus the sampler.
     for name in ("LinearSchedule", "ddpm_step", "flow_map_step", "flowmap_smc_max_sample"):

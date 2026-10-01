@@ -446,7 +446,7 @@ def toy_cell(
     from test_flowmap_smc import (  # type: ignore[import-not-found]  # noqa: E402
         GaussianFlowMap, _gaussian_score_fn, _reward,
     )
-    from creativity_measure.flowmap_smc import LinearSchedule, flowmap_smc_sample  # noqa: E402
+    from creativity_measure.samplers.flowmap_smc import LinearSchedule, flowmap_smc_sample  # noqa: E402
 
     schedule = LinearSchedule()
     res = flowmap_smc_sample(

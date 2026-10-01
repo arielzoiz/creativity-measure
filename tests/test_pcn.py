@@ -191,7 +191,7 @@ def test_pcn_decorrelation_is_dimension_robust():
     Guards the dimension-robust metric: the old |cos| form floors at ~2/pi in 2D, so the < 0.1
     independence assertion below would fail there — this pins portability from the 2D toy to image dims.
     """
-    from creativity_measure.adaptive_tempering_smc import _State
+    from creativity_measure.samplers.adaptive_tempering_smc import _State
     p = _ring_density()
     ker = PCNKernel(density_generator(p, n_steps=8), 2)     # G is unused by decorrelation()
     for d in (2, 64):

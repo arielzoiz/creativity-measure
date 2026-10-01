@@ -34,13 +34,13 @@ from jaxtyping import Float
 from torch import Tensor
 
 from creativity_measure.density import Density
-from creativity_measure.smc_common import _ess_from_logw, _systematic_resample
+from creativity_measure.samplers.smc_common import _ess_from_logw, _systematic_resample
 from creativity_measure.tilt import Reward
 
 RewardFn = Callable[[Tensor], Tensor]   # f(X) -> (N,)
 
 # ``_ess_from_logw`` / ``_systematic_resample`` live in ``smc_common`` (shared with ``diffusion_smc``);
-# re-exported here so existing ``creativity_measure.adaptive_tempering_smc`` imports keep resolving.
+# re-exported here so existing ``creativity_measure.samplers.adaptive_tempering_smc`` imports keep resolving.
 __all__ = ["_ess_from_logw", "_systematic_resample"]
 
 

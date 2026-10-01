@@ -46,7 +46,7 @@ from test_flowmap_smc import (  # type: ignore[import-not-found]  # noqa: E402
 )
 
 from creativity_measure._types import FlowMap, Schedule  # noqa: E402
-from creativity_measure.flowmap_smc import (  # noqa: E402
+from creativity_measure.samplers.flowmap_smc import (  # noqa: E402
     LinearSchedule, _in_window, _renoise, _t_prime, _uniform_ts, ddpm_step, flow_map_step,
 )
 from creativity_measure.tilt import Reward  # noqa: E402

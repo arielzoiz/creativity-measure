@@ -52,7 +52,7 @@ the exact check written to catch that.
 
 One import surface, as for the other variants::
 
-    from creativity_measure.flowmap_smc_defer import (
+    from creativity_measure.samplers.flowmap_smc_defer import (
         LinearSchedule, ddpm_step, flow_map_step, flowmap_smc_defer_sample,
     )
 
@@ -66,7 +66,7 @@ from jaxtyping import Float, Int
 from torch import Tensor
 
 from creativity_measure._types import FlowMap, Schedule, ScoreFn, TransitionStep
-from creativity_measure.flowmap_smc import (
+from creativity_measure.samplers.flowmap_smc import (
     SCHEDULES,
     BaseSchedule,
     FlowMapSMCResult,
@@ -89,7 +89,7 @@ from creativity_measure.flowmap_smc import (
     ddpm_step,
     flow_map_step,
 )
-from creativity_measure.smc_common import _ess_from_logw
+from creativity_measure.samplers.smc_common import _ess_from_logw
 from creativity_measure.tilt import Reward
 
 __all__ = [

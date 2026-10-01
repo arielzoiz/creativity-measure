@@ -51,7 +51,7 @@ whether a ``K`` sweep through THIS module finally shows the ``1/sqrt(K)`` it sho
 
 **One import surface for notebooks.** A notebook driving this sampler imports from *this module only*::
 
-    from creativity_measure.flowmap_smc_mean import (
+    from creativity_measure.samplers.flowmap_smc_mean import (
         LinearSchedule, ddpm_step, flow_map_step, flowmap_smc_mean_sample,
     )
 
@@ -70,7 +70,7 @@ from typing import Any
 from jaxtyping import Float
 from torch import Tensor
 
-from creativity_measure.flowmap_smc import (
+from creativity_measure.samplers.flowmap_smc import (
     SCHEDULES,
     BaseSchedule,
     FlowMapSMCResult,
@@ -81,7 +81,7 @@ from creativity_measure.flowmap_smc import (
     flow_map_step,
     flowmap_smc_sample,
 )
-from creativity_measure.flowmap_smc_max import ValueAgg, _override_value_agg
+from creativity_measure.samplers.flowmap_smc_max import ValueAgg, _override_value_agg
 from creativity_measure.tilt import Reward
 
 __all__ = [

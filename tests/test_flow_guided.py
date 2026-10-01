@@ -20,7 +20,7 @@ from creativity_measure import (
 )
 from creativity_measure.distances.base import Distance
 from creativity_measure.distances.edm_adapter import edm_score_fn
-from creativity_measure.flow_guided import FlowGuidedResult, _shifted_schedule, _reward_grad, flow_guided_sample
+from creativity_measure.samplers.flow_guided import FlowGuidedResult, _shifted_schedule, _reward_grad, flow_guided_sample
 from creativity_measure.generators.flux import flux_edm_denoiser, flux_velocity_fn
 
 C, H, W = 16, 4, 4          # same tiny "image" shape as test_flux_denoiser.py

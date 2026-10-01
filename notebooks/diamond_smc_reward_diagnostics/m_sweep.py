@@ -41,7 +41,7 @@ M_LIST = [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
 
 def main() -> int:
     info = paths.preflight()
-    from creativity_measure.diamond_smc import diamond_smc_sample
+    from creativity_measure.samplers.diamond_smc import diamond_smc_sample
 
     backend, reward, lam_s = reward_common.build_backend_and_reward(info, probe_m=M)
     print(f"m grid: {M_LIST}", flush=True)

@@ -56,7 +56,7 @@ from jaxtyping import Float, Int
 from torch import Tensor
 
 from creativity_measure._types import FlowMap, Schedule, ScoreFn, TransitionStep
-from creativity_measure.smc_common import _ess_from_logw, _systematic_resample
+from creativity_measure.samplers.smc_common import _ess_from_logw, _systematic_resample
 from creativity_measure.tilt import Reward
 
 __all__ = [

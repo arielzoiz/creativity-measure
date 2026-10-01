@@ -43,7 +43,7 @@ import torch
 from jaxtyping import Float, Int
 from torch import Tensor
 
-from creativity_measure.smc_common import _ess_from_logw, _systematic_resample
+from creativity_measure.samplers.smc_common import _ess_from_logw, _systematic_resample
 from creativity_measure.tilt import Reward
 
 RewardFn = Callable[[Tensor], Tensor]   # f(X) -> (B,)

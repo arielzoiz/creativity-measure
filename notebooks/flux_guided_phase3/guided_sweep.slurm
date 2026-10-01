@@ -66,7 +66,7 @@ echo "HF credential: HF_TOKEN present in the environment"
 "$PY" - <<'PREFLIGHT'
 import sys
 import torch
-from creativity_measure.flow_guided import flow_guided_sample
+from creativity_measure.samplers.flow_guided import flow_guided_sample
 from creativity_measure.generators.flux import flux_velocity_fn
 import inspect
 assert "diffusers-native" in inspect.getsource(flux_velocity_fn).lower() or True  # module exists at all

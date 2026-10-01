@@ -28,8 +28,8 @@ import torch
 from creativity_measure import LpDistance, NormalizedExpectedDistanceReward, Reward
 from creativity_measure._types import FlowMap, Schedule, TransitionStep
 from creativity_measure.distances.edm_adapter import edm_score_fn
-from creativity_measure.smc_common import _ess_from_logw
-from creativity_measure.flowmap_smc import (
+from creativity_measure.samplers.smc_common import _ess_from_logw
+from creativity_measure.samplers.flowmap_smc import (
     MIN_ZSCORE_STD,
     BaseSchedule,
     FlowMapSMCResult,
@@ -455,7 +455,7 @@ def test_windows_may_start_at_zero():
     assert torch.isfinite(res2.X).all()
 
     # And the invariant that actually guards this: a guided step landing on t = 0 is rejected.
-    from creativity_measure.flowmap_smc import _check_window
+    from creativity_measure.samplers.flowmap_smc import _check_window
     _check_window("guid_window", (0.0, 1.0), [True] * 4)      # the window itself is fine
 
 
@@ -466,7 +466,7 @@ def test_window_selection_is_contiguous():
     it exists so a future non-interval window spec cannot silently drop a step and carry resampled
     clones into a lookahead that scores them identically.
     """
-    from creativity_measure.flowmap_smc import _check_window
+    from creativity_measure.samplers.flowmap_smc import _check_window
 
     ts = [0.0, 0.2, 0.5, 0.55, 0.9, 1.0]
     flags = [_in_window(ts[n + 1], (0.5, 0.9)) for n in range(len(ts) - 1)]
@@ -543,7 +543,7 @@ def test_antithetic_pairing():
 @pytest.mark.parametrize("schedule", [LinearSchedule(), VPSchedule()])
 def test_rho_stays_in_range_on_the_grid(schedule: Schedule):
     """``rho in [0, 1)`` and ``1 - rho^2 >= 0`` at every transition -- §3B's variance is never negative."""
-    from creativity_measure.flowmap_smc import _rho
+    from creativity_measure.samplers.flowmap_smc import _rho
 
     for n in range(len(GRID) - 1):
         rho, one_minus = _rho(schedule, GRID[n], GRID[n + 1])
@@ -681,7 +681,7 @@ def test_the_whole_loop_runs_under_a_foreign_schedule():
 
 
 def test_schedules_registry_round_trips_the_name():
-    from creativity_measure.flowmap_smc import SCHEDULES
+    from creativity_measure.samplers.flowmap_smc import SCHEDULES
 
     assert SCHEDULES["linear"].name == "linear"
     assert isinstance(SCHEDULES[LinearSchedule().name], LinearSchedule)

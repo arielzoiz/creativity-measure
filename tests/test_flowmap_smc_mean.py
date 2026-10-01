@@ -19,10 +19,10 @@ import math
 import pytest
 import torch
 
-from creativity_measure import flowmap_smc
-from creativity_measure.flowmap_smc import LinearSchedule, _soft_value, flowmap_smc_sample
-from creativity_measure.flowmap_smc_max import _max_value
-from creativity_measure.flowmap_smc_mean import (
+from creativity_measure.samplers import flowmap_smc
+from creativity_measure.samplers.flowmap_smc import LinearSchedule, _soft_value, flowmap_smc_sample
+from creativity_measure.samplers.flowmap_smc_max import _max_value
+from creativity_measure.samplers.flowmap_smc_mean import (
     _mean_value,
     flowmap_smc_mean_sample,
 )

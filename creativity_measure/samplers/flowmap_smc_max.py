@@ -61,7 +61,7 @@ so the soft value of the same run is reconstructible offline for a paired compar
 never from both -- so nothing about which aggregation ran depends on remembering which of two
 imports a cell used::
 
-    from creativity_measure.flowmap_smc_max import (
+    from creativity_measure.samplers.flowmap_smc_max import (
         LinearSchedule, ddpm_step, flow_map_step, flowmap_smc_max_sample,
     )
 
@@ -84,8 +84,8 @@ from typing import Any
 from jaxtyping import Float
 from torch import Tensor
 
-from creativity_measure import flowmap_smc
-from creativity_measure.flowmap_smc import (
+from creativity_measure.samplers import flowmap_smc
+from creativity_measure.samplers.flowmap_smc import (
     SCHEDULES,
     BaseSchedule,
     FlowMapSMCResult,

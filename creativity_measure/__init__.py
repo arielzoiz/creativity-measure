@@ -16,22 +16,16 @@ from creativity_measure.tilt import (
 from creativity_measure.plotting import (
     make_grid, plot_field, plot_samples, panel_grid, lambda_sweep,
 )
-from creativity_measure.adaptive_tempering_smc import (
-    adaptive_tempering_smc_sample, AdaptiveTemperingSMCResult, LevelSnapshot,
-    Kernel, IndependenceKernel, PCNKernel,
-    RejuvenationStop, MAX_N_MCMC, MIN_N_MCMC
-)
-from creativity_measure.diamond_smc import (
-    diamond_smc_sample, DiamondSMCResult, DiamondMapBackend,
-)
 from creativity_measure._types import (
     ScoreFn, FlowMap, Schedule, TransitionStep,
 )
-from creativity_measure.flowmap_smc import (
+from creativity_measure.samplers import (
+    adaptive_tempering_smc_sample, AdaptiveTemperingSMCResult, LevelSnapshot,
+    Kernel, IndependenceKernel, PCNKernel,
+    RejuvenationStop, MAX_N_MCMC, MIN_N_MCMC,
+    diamond_smc_sample, DiamondSMCResult, DiamondMapBackend,
     flowmap_smc_sample, FlowMapSMCResult, StepSnapshot, StepCallback,
     BaseSchedule, LinearSchedule, SCHEDULES, ddpm_step, flow_map_step,
-)
-from creativity_measure.flow_guided import (
     flow_guided_sample, FlowGuidedResult,
 )
 from creativity_measure.generators import (

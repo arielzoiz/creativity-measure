@@ -16,8 +16,8 @@ from typing import Any
 import pytest
 import torch
 
-from creativity_measure.flowmap_smc import LinearSchedule, flowmap_smc_sample
-from creativity_measure.flowmap_smc_defer import flowmap_smc_defer_sample
+from creativity_measure.samplers.flowmap_smc import LinearSchedule, flowmap_smc_sample
+from creativity_measure.samplers.flowmap_smc_defer import flowmap_smc_defer_sample
 from creativity_measure.tilt import Reward
 from test_flowmap_smc import GaussianFlowMap, _gaussian_score_fn, _reward
 

@@ -1,6 +1,6 @@
 """Bridge to the authors' JAX implementation of Diamond Maps (arXiv:2602.05993).
 
-Supplies the two generative operations :mod:`creativity_measure.diamond_smc` needs, plus the marginal
+Supplies the two generative operations :mod:`creativity_measure.samplers.diamond_smc` needs, plus the marginal
 ``score_fn`` its IEM reward needs, by calling the upstream ``posterior_diamond_maps`` code **live** —
 nothing is copied, vendored or edited. Upstream stays a pristine git checkout.
 
@@ -104,7 +104,7 @@ def _as_variables(tree: Any) -> Any:
 class DiamondMapsBackend:
     """Drives the upstream GLASS base sampler and diamond-map posterior from PyTorch.
 
-    Satisfies :class:`creativity_measure.diamond_smc.DiamondMapBackend`.
+    Satisfies :class:`creativity_measure.samplers.diamond_smc.DiamondMapBackend`.
 
     ``label`` and ``cfg_scale`` are **required and have no defaults**: they define the prior ``p``
     that the whole experiment is about, so the library must never pick one silently. Choose them at
@@ -386,7 +386,7 @@ class DiamondMapsBackend:
         """Algorithm 2 line 9 — ``mc_samples`` one-NFE draws of ``x_1`` per particle.
 
         Returns ``repeat_interleave`` order: ``.view(n, mc_samples, ...)`` groups by particle, which
-        is what :func:`~creativity_measure.diamond_smc._soft_value` assumes.
+        is what :func:`~creativity_measure.samplers.diamond_smc._soft_value` assumes.
         """
         n = x_t.shape[0]
         t_prime = self.ts[int(step_idx) + 1]

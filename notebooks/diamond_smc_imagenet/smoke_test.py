@@ -58,7 +58,7 @@ def main() -> int:
 
     from creativity_measure import SquaredGlobalIEMDistance, NormalizedExpectedDistanceReward
     from creativity_measure.backends.diamond_maps_jax import DiamondMapsBackend
-    from creativity_measure.diamond_smc import diamond_smc_sample
+    from creativity_measure.samplers.diamond_smc import diamond_smc_sample
 
     t0 = time.time()
     backend = DiamondMapsBackend(

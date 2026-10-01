@@ -21,7 +21,7 @@ The updated reward that should be in use:
 and in high dimensions there is no grid to enumerate. This repo is a search for good samplers for $q_{\lambda}$.
 Everything else (distances, refsets, generators) is fixed infrastructure that any sampler consumes.
 
-**Current samplers** (`creativity_measure/`). Notebooks, commit messages and slurm headers refer to these **by number**:
+**Current samplers** (`creativity_measure/samplers/`). Notebooks, commit messages and slurm headers refer to these **by number**:
 **Alg 1 = `adaptive_tempering_smc`, Alg 2 = `diamond_smc`, Alg 3 = `flowmap_smc`.**
 
 - **Alg 1** — `adaptive_tempering_smc.py` — the mature one. Adaptive-tempering SMC over $\beta \in [0,1]$ with a pluggable rejuvenation `Kernel`:
@@ -66,7 +66,7 @@ Everything else (distances, refsets, generators) is fixed infrastructure that an
 
 ## Adding a New Sampler
 
-Follow the shape of the existing two: a module in `creativity_measure/` exporting `<name>_sample(reward: Reward, lam: float, n_particles: int, *, ..., seed=None) -> <Name>Result`,
+Follow the shape of the existing two: a module in `creativity_measure/samplers/` exporting `<name>_sample(reward: Reward, lam: float, n_particles: int, *, ..., seed=None) -> <Name>Result`,
 where the result dataclass carries `X`, `logw`, and per-level **diagnostics** (ESS history, acceptance, effort). Diagnostics are not optional — in high dimensions they are the only
 way to tell whether the run worked. Export from `__init__.py`, add tests under `tests/`, and validate first on the 2D toy where the grid gives ground truth.
 
@@ -168,7 +168,9 @@ Rules are general; the pCN parentheticals are Algorithm 1, the only sampler with
   see Established Findings and `notebooks/refset_auto_r/`.
 - `generators/` — $G: z \mapsto x$ via the EDM probability-flow ODE, so $G(N(0,I)) \approx p$ (`toy_2d`, `edm_pixel`, `tiny_sd`, `flux`).
 - `tilt.py` — rewards; `density.py` — $p$ as `log_p_X` / `log_p_Y` / sampler.
-- `flowmap_smc.py` also records, all side-effect-free (bit-identical runs, asserted by
+- `samplers/` — the sampler modules themselves (Algs 1-3, `flow_guided`, `smc_common.py`'s shared SMC
+  infrastructure) — see "Current samplers" above for the full list and "Adding a New Sampler" for the
+  convention. `flowmap_smc.py` also records, all side-effect-free (bit-identical runs, asserted by
   `test_recording_flags_leave_the_run_bit_identical`): `record_r_k` (keeps $(M, K)$ lookahead rewards,
   so any $K' \le K$ is reconstructible offline by subsetting), `project_endpoint` (per-step $E_{q}[f]$
   from $f(\operatorname{map}(x, t, 1))$, weighted **pre**-resample), plus `U_pre_history` and
