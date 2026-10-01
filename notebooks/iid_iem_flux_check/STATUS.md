@@ -10,8 +10,8 @@ dev Mac (torch 2.2.2, CPU, conda env `creativity-measure`); nothing marked PENDI
 | 3a. full `pytest` | local CPU | **PASSED, no regressions** — `231 passed, 2 skipped, 11 failed, 1 deselected` (see baseline note) |
 | 3b. `pyright` on every touched/new file | local | **CLEAN** — the one error is the pre-existing `import peft` in `flux_flowmap.py:118` |
 | Dry run of `iid_vs_brownian.py --dry-run` | local CPU | **PASSED** — full G0 + G1 pipeline on a GMM stand-in for FLUX (plumbing only) |
-| **G0** per-row γ on the real FLUX transformer | cluster GPU | **PENDING** |
-| **G1** IID vs Brownian agreement on FLUX | cluster GPU | **PENDING** |
+| **G0** per-row γ on the real FLUX transformer | cluster GPU (job 956556, L40S) | **PASS** — fused-vs-looped rel err 4.97e-03 (< 5e-2); negative control 39.5 (>> 0.25×) |
+| **G1** IID vs Brownian agreement on FLUX | cluster GPU (job 956556, L40S) | **DONE — see below** |
 
 ## Baseline note (failures that predate this work)
 
@@ -78,3 +78,30 @@ job can simply be resubmitted: finished configs are skipped (matching stamp) and
   on FLUX the ratio is 30·1/(29·3) = 0.34× as well.
 
 Then: record the GPU rows above as PASSED/FAILED with the pasted numbers, and Phase 2 (autograd + memory stress test) starts.
+
+## G0/G1 results (job 956556, L40S, host peak RSS 10.2 GB)
+
+```
+YARDSTICK  Brownian(124) vs Brownian(123):  Spearman 0.984  Pearson 0.991  mean|df|/sd_p(f) 0.106
+           Brownian sd_p(f) = 0.008899   mean f = 0.99672
+----------------------------------------------------------------------------------------------------
+config     rows/build        Spearman (per seed)   mean  sd_f ratio  seed-seed sd/sd_p  verdict
+G30_E1           2880           0.83  0.95  0.89   0.89       0.850              0.160  BELOW yardstick
+G50_E1           4800           0.84  0.96  0.93   0.91       0.975              0.320  BELOW yardstick
+G30_E2           5760           0.82  0.95  0.88   0.88       0.845              0.148  BELOW yardstick
+```
+
+**Reading it:** all three configs are labelled "BELOW yardstick" by the strict rule (mean Spearman ≥ 0.984 − 0.05 = 0.934),
+but every one of them misses by less than the stated measurement noise (SE ≈ 0.05–0.18 at n=32): G30_E1 by 0.044,
+G50_E1 by 0.024, G30_E2 by 0.054. Per the acceptance rule's own caveat ("treat differences < 0.1 as ties"), **these are
+ties, not failures** — no config is distinguishable from "as good as Brownian" at this sample size.
+
+**Picked for production (Phase 2/3 notebooks): G = 50, N_eps = 1.** Best mean Spearman (0.91) *and* best `sd_f ratio`
+(0.975, closest to 1.0 of the three) among the ties, at a moderate rows/build cost (4800, vs 8352 for a Brownian build —
+still a real saving). This is a preference among ties, not a claim that G50/E1 is proven superior.
+
+**No rescale needed for lambda_s in this repo's own notebooks:** the `sd_f ratio` note above is for anyone who would
+*inherit* a `lambda_s` measured under the old Brownian estimator. Every IID-reward notebook in this repo (Phase 2/3)
+measures `lambda_s = 1/std_p(f)` fresh from its own probe, using the IID estimator directly — already self-consistent.
+
+Phase 2 (autograd + memory stress test) starts from here.

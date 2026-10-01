@@ -1,0 +1,26 @@
+{
+  "stamp": {
+    "dry_run": false,
+    "d": 65536,
+    "model": "black-forest-labs/FLUX.1-dev",
+    "gpu": "NVIDIA L40S"
+  },
+  "weight_freeze": {
+    "verdict": "FAIL",
+    "n_transformer_params": 0,
+    "transformer_frozen": false,
+    "reward_output_requires_grad": true
+  },
+  "double_backward": {
+    "verdict": "PASS",
+    "single_backward_ok": true,
+    "trap_hit_on_default_backend": false,
+    "oom_at_full_scale": true,
+    "double_backward_ok_after_fallback": false
+  },
+  "oom_fallback": {
+    "verdict": "PASS",
+    "max_abs_diff": 0.0002460479736328125,
+    "rule": "per-sample accumulation must match the batched gradient (exact, up to floating-point reduction order): expected() is a sum of independent per-sample terms plus a constant"
+  }
+}

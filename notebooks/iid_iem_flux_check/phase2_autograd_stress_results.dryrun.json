@@ -1,0 +1,24 @@
+{
+  "stamp": {
+    "dry_run": true,
+    "d": 256
+  },
+  "weight_freeze": {
+    "verdict": "PASS",
+    "n_transformer_params": 66,
+    "transformer_frozen": true,
+    "reward_output_requires_grad": true
+  },
+  "double_backward": {
+    "verdict": "PASS",
+    "single_backward_ok": true,
+    "trap_hit_on_default_backend": true,
+    "oom_at_full_scale": false,
+    "double_backward_ok_after_fallback": true
+  },
+  "oom_fallback": {
+    "verdict": "PASS",
+    "max_abs_diff": 1.862645149230957e-09,
+    "rule": "per-sample accumulation must match the batched gradient (exact, up to floating-point reduction order): expected() is a sum of independent per-sample terms plus a constant"
+  }
+}

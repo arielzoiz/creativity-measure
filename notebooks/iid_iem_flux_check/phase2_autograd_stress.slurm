@@ -5,7 +5,7 @@
 #SBATCH --partition=killable
 #SBATCH --account=gpu-research
 #SBATCH --constraint=l40s
-#SBATCH --time=90
+#SBATCH --time=180
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
@@ -46,6 +46,13 @@ export TORCH_HOME="$WORK/.cache/torch"
 export XDG_CACHE_HOME="$WORK/.cache"
 export MPLCONFIGDIR="$WORK/.config/matplotlib"
 export TOKENIZERS_PARALLELISM=false
+# This torch build dispatches some backward ops (confirmed: bmm_outer_product, hit by a PLAIN single
+# backward, no create_graph needed) through a Triton-JIT-compiled kernel. Triton does not honor
+# XDG_CACHE_HOME here -- it defaults straight to ~/.triton/cache, which job 957227 hit: $HOME is not
+# writable on every killable node (same class of issue as $HOME not being mounted at all elsewhere in
+# this repo's slurm scripts). TRITON_CACHE_DIR is the dedicated override.
+export TRITON_CACHE_DIR="$WORK/.cache/triton"
+mkdir -p "$TRITON_CACHE_DIR"
 
 mkdir -p "$WORK/logs" "$MPLCONFIGDIR"
 cd "$CHECK_DIR"

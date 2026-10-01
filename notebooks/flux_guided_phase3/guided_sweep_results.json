@@ -1,0 +1,100 @@
+{
+  "stamp": {
+    "dry_run": false,
+    "d": 65536,
+    "model": "black-forest-labs/FLUX.1-dev",
+    "gpu": "NVIDIA L40S",
+    "n_heldout": 4,
+    "n_steps": 6,
+    "lambdas": [
+      0.0,
+      0.5,
+      1.0,
+      2.0
+    ],
+    "jacobian_modes": [
+      false,
+      true
+    ]
+  },
+  "lam0.0_exactFalse_seed0": {
+    "lam": 0.0,
+    "exact_jacobian": false,
+    "seed": 0,
+    "f_mean": 0.5431598424911499,
+    "f_std": 0.002514238702133298,
+    "applied_norm_mean": 0.0,
+    "oom_fallback_any": false,
+    "elapsed_s": 14.018323421478271
+  },
+  "lam0.5_exactFalse_seed0": {
+    "lam": 0.5,
+    "exact_jacobian": false,
+    "seed": 0,
+    "f_mean": 0.6461798548698425,
+    "f_std": 0.018003279343247414,
+    "applied_norm_mean": 140.37053680419922,
+    "oom_fallback_any": true,
+    "elapsed_s": 255.09231209754944
+  },
+  "lam1.0_exactFalse_seed0": {
+    "lam": 1.0,
+    "exact_jacobian": false,
+    "seed": 0,
+    "f_mean": 0.8426086902618408,
+    "f_std": 0.019553152844309807,
+    "applied_norm_mean": 285.6876983642578,
+    "oom_fallback_any": true,
+    "elapsed_s": 254.9508502483368
+  },
+  "lam2.0_exactFalse_seed0": {
+    "lam": 2.0,
+    "exact_jacobian": false,
+    "seed": 0,
+    "f_mean": 1.9509531259536743,
+    "f_std": 0.11571655422449112,
+    "applied_norm_mean": 616.8843790690104,
+    "oom_fallback_any": true,
+    "elapsed_s": 254.83314442634583
+  },
+  "lam0.0_exactTrue_seed0": {
+    "lam": 0.0,
+    "exact_jacobian": true,
+    "seed": 0,
+    "f_mean": 0.5431598424911499,
+    "f_std": 0.002514238702133298,
+    "applied_norm_mean": 0.0,
+    "oom_fallback_any": false,
+    "elapsed_s": 13.815739154815674
+  },
+  "lam0.5_exactTrue_seed0": {
+    "lam": 0.5,
+    "exact_jacobian": true,
+    "seed": 0,
+    "f_mean": 0.6333103775978088,
+    "f_std": 0.001993552315980196,
+    "applied_norm_mean": 152.68150838216147,
+    "oom_fallback_any": true,
+    "elapsed_s": 351.6970992088318
+  },
+  "lam1.0_exactTrue_seed0": {
+    "lam": 1.0,
+    "exact_jacobian": true,
+    "seed": 0,
+    "f_mean": 0.7584779262542725,
+    "f_std": 0.023229263722896576,
+    "applied_norm_mean": 344.171147664388,
+    "oom_fallback_any": true,
+    "elapsed_s": 351.6150839328766
+  },
+  "lam2.0_exactTrue_seed0": {
+    "lam": 2.0,
+    "exact_jacobian": true,
+    "seed": 0,
+    "f_mean": 2.617382049560547,
+    "f_std": 0.919680118560791,
+    "applied_norm_mean": 799.7181803385416,
+    "oom_fallback_any": true,
+    "elapsed_s": 351.7648079395294
+  }
+}

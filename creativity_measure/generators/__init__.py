@@ -16,7 +16,13 @@ from .base import (
 from .toy_2d import density_denoiser, density_generator
 from .edm_pixel import build_edm_pixel_generator, build_edm_pixel_generator_from_pkl
 from .tiny_sd import build_tiny_sd_generator
-from .flux import build_flux_generator
+from .flux import (
+    VelocityFn,
+    build_flux_denoiser,
+    build_flux_generator,
+    flux_edm_denoiser,
+    flux_velocity_fn,
+)
 from .flux_flowmap import (
     DualTimeEmbedder,
     FluxFlowMap,
@@ -37,6 +43,10 @@ __all__ = [
     "build_edm_pixel_generator_from_pkl",
     "build_tiny_sd_generator",
     "build_flux_generator",
+    "VelocityFn",
+    "flux_edm_denoiser",
+    "flux_velocity_fn",
+    "build_flux_denoiser",
     "DualTimeEmbedder",
     "FluxFlowMap",
     "build_flux_flow_map",

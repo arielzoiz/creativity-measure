@@ -286,6 +286,57 @@ def test_expected_equals_weighted_mean_of_pairwise():
     assert torch.allclose(d.expected(X, x_refs, w2), (pw * w2).sum(1) / w2.sum(), rtol=1e-10, atol=1e-10)
 
 
+def test_expected_gamma_chunk_partition_matches_expected():
+    """A full partition of [0, G) reproduces expected() exactly (the OOM fallback's exactness claim,
+    creativity_measure/flux_guided.py). Checked at B=1 too -- the case a batch-axis chunk could not
+    have helped (score rows are G*N_eps*B), which is why this chunks gamma, not the batch."""
+    d = make()
+    G0 = gammas.shape[0]
+    want = d.expected(X, x_refs)
+    total = torch.zeros_like(want)
+    for g_lo in range(0, G0, 2):
+        g_hi = min(g_lo + 2, G0)
+        total = total + d.expected_gamma_chunk(X, x_refs, g_lo, g_hi)
+    assert torch.allclose(total, want, rtol=1e-10, atol=1e-10)
+
+    want_b1 = d.expected(X[:1], x_refs)
+    total_b1 = torch.zeros_like(want_b1)
+    for g in range(G0):
+        total_b1 = total_b1 + d.expected_gamma_chunk(X[:1], x_refs, g, g + 1)
+    assert torch.allclose(total_b1, want_b1, rtol=1e-10, atol=1e-10)
+
+
+def test_expected_gamma_chunk_gradient_matches_expected():
+    """The gradient of the chunk-accumulated total must match the batched gradient -- what the OOM
+    fallback actually needs (Phase 2 measured 1.86e-09 for the analogous per-sample split)."""
+    d = make()
+    G0 = gammas.shape[0]
+
+    Xa = X.clone().requires_grad_(True)
+    loss_a = d.expected(Xa, x_refs).sum()
+    (ga,) = torch.autograd.grad(loss_a, Xa)
+
+    Xb = X.clone().requires_grad_(True)
+    total = None
+    for g in range(G0):
+        partial = d.expected_gamma_chunk(Xb, x_refs, g, g + 1).sum()
+        total = partial if total is None else total + partial
+    assert total is not None
+    (gb,) = torch.autograd.grad(total, Xb)
+    assert torch.allclose(ga, gb, rtol=1e-10, atol=1e-10)
+
+
+def test_expected_gamma_chunk_rejects_bad_bounds():
+    d = make()
+    G0 = gammas.shape[0]
+    with pytest.raises(ValueError):
+        d.expected_gamma_chunk(X, x_refs, 0, G0 + 1)
+    with pytest.raises(ValueError):
+        d.expected_gamma_chunk(X, x_refs, 3, 3)
+    with pytest.raises(ValueError):
+        d.expected_gamma_chunk(X, x_refs, -1, 2)
+
+
 def test_expected_cache_off_matches_on():
     on, off = make(cache_refs=True), make(cache_refs=False)
     assert torch.equal(on.expected(X, x_refs), off.expected(X, x_refs))

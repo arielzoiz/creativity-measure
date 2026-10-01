@@ -31,14 +31,23 @@ Everything else (distances, refsets, generators) is fixed infrastructure that an
   a DDPM transition per step, then a posterior lookahead through the diamond map to reweight. Entry point `diamond_smc_sample`.
 - **Alg 3** — `flowmap_smc.py` — a **single forward pass** noise $\to$ data with one lookahead per step: no tempering ladder, no rejuvenation, no acceptance rate to collapse.
   Entry point `flowmap_smc_sample`. Cost is dominated entirely by reward evaluations.
+- **`flux_guided_sample`** (`flux_guided.py`) — not numbered with Algs 1–3: it is the first sampler built on **inference-time gradients** $\nabla_x f$ rather than SMC/MCMC
+  (Phase 3 of the gradient-guidance line, `notebooks/iid_iem_flux_check/ROADMAP.md`). At each step of FLUX's own native flow-matching ODE, nudges the velocity by
+  $\lambda \nabla_{\hat x_0} f$ (identity-Jacobian approximate mode, default) or the exact chain-ruled gradient through the transformer (`exact_jacobian=True`) —
+  no tempering ladder, no particles, no resampling; a single guided forward pass. Needs a `differentiable=True` denoiser/velocity function
+  (`generators/flux.py`'s `flux_edm_denoiser`/`flux_velocity_fn`/`build_flux_denoiser`). See Invariant 2's exception below.
 - **More samplers are expected.** Adding one is a first-class contribution, not a refactor.
 
 ## Invariants Every Sampler Must Respect
 
 1. **The reward is frozen.** `Reward` is a frozen dataclass; references `x_refs`, their `weights`, and the `Distance`'s Brownian seed are fixed before sampling,
    so $f$ is a deterministic function of $x$ — required by SMC/MCMC theory. Never resample references mid-run.
-2. **Gradient-free.** $f$ is treated as a black-box scalar; no $\nabla f$, no $\log p$ evaluations in the acceptance ratio (pCN cancels the Gaussian prior).
-   `log_p_X` / `grid_normalize` / `tilted_log_density` are only used for a **2D-toy-only** version, never part of a high-d sampler.
+2. **Gradient-free — holds for Algs 1–3.** $f$ is treated as a black-box scalar; no $\nabla f$, no $\log p$ evaluations in the acceptance ratio (pCN cancels the Gaussian prior).
+   `log_p_X` / `grid_normalize` / `tilted_log_density` are only used for a **2D-toy-only** version, never part of a high-d SMC/MCMC sampler.
+   **Exception: `flux_guided_sample`** (Phase 3, `notebooks/iid_iem_flux_check/ROADMAP.md`) is the first sampler to use $\nabla f$ by design — it steers FLUX's own
+   generative ODE with the reward's gradient instead of reweighting/rejuvenating. It requires a `differentiable=True` denoiser/velocity function and explicitly
+   freezes every model parameter (`requires_grad_(False)`) before building any autograd graph through it, so this exception never silently reaches the frozen
+   reward's weights or an unrelated sampler.
 3. **The 2D-toy-only version can be used as a reference for 2D tests, but is not ground-truth.** The 2D-toy-only sampler fails at strongs tilts and drifts off the grid,
    and therefore is not achieving the goal.
 3. **Determinism via a threaded generator.** All randomness comes from a single `torch.Generator(seed)` passed through; never touch global torch RNG.

@@ -29,6 +29,69 @@ _MISSING_DEPS_MSG = (
     "Install the optional model deps:  pip install -e '.[models]'"
 )
 
+# (x_t: (B, d), t: float) -> v_theta(x_t, t): (B, d), in the DIFFUSERS-NATIVE time convention
+# (t = 1 pure noise, t = 0 clean data). See `flux_velocity_fn` for the convention warning.
+VelocityFn = Callable[[Float[Tensor, "B d"], float], Float[Tensor, "B d"]]
+
+
+def _flux_raw_velocity(
+    transformer: nn.Module,
+    x_t: Float[Tensor, "B c h w"],
+    t: Float[Tensor, "B"],
+    *,
+    prompt_embeds: Tensor,
+    pooled_prompt_embeds: Tensor,
+    img_ids: Tensor,
+    txt_ids: Tensor,
+    guidance: float,
+    img_shape: tuple[int, int, int],
+    img_px: int,
+    dtype: torch.dtype,
+    grad_ctx: Callable[[], contextlib.AbstractContextManager],
+) -> Float[Tensor, "B c h w"]:
+    """The one FLUX transformer call: pack -> transformer -> unpack, returning the raw velocity.
+
+    ``x_t`` and ``t`` are already in FLUX's own (diffusers-native) parameterization -- this helper does no
+    reparameterization of its own, so both callers keep full control of the time convention they present.
+    Extracted so ``flux_edm_denoiser`` and ``flux_velocity_fn`` share exactly one transformer call site;
+    the arithmetic order is preserved verbatim from the original closure (which was itself ported from
+    ``notebooks/refset_auto_r/auto_r_common.py``'s ``build()``), so ``flux_edm_denoiser`` stays bitwise
+    identical -- asserted by ``tests/test_flux_denoiser.py``.
+    """
+    from diffusers import FluxPipeline  # type: ignore[attr-defined]  # older diffusers lack this
+
+    c, h, w = img_shape
+    b = x_t.shape[0]
+    with grad_ctx():
+        v = transformer(
+            hidden_states=FluxPipeline._pack_latents(x_t.to(dtype), b, c, h, w),
+            timestep=t.to(dtype),
+            guidance=torch.full((b,), guidance, device=x_t.device, dtype=torch.float32),
+            pooled_projections=pooled_prompt_embeds.expand(b, -1).to(dtype),
+            encoder_hidden_states=prompt_embeds.expand(b, -1, -1).to(dtype),
+            txt_ids=txt_ids, img_ids=img_ids, return_dict=False)[0]
+    return FluxPipeline._unpack_latents(v, img_px, img_px, 8).to(torch.float32)
+
+
+def _freeze(transformer: nn.Module) -> None:
+    """``requires_grad_(False)`` + ``eval()`` + gradient checkpointing: only the caller's input latent
+    may carry a gradient, and the backward pass recomputes each block's activations instead of keeping
+    all ~57 of them resident at once.
+
+    ``requires_grad_(False)`` alone is not sufficient on real FLUX.1-dev: job 957136 measured a single
+    grad-enabled forward through the full 12B transformer at batch=2 using the ENTIRE remaining ~20 GB
+    after the bf16 weights (44.51/44.53 GiB total) -- every block's activations must stay alive
+    simultaneously for backward, unlike inference where each block's activations can be freed once the
+    next one is computed. ``enable_gradient_checkpointing()`` trades this for recompute: diffusers gates
+    it on ``torch.is_grad_enabled() and self.gradient_checkpointing`` (`transformer_flux.py`'s
+    `forward`), NOT on ``self.training``, so it composes correctly with the ``eval()`` call below.
+    """
+    transformer.requires_grad_(False)
+    transformer.eval()
+    enable_checkpointing = getattr(transformer, "enable_gradient_checkpointing", None)
+    if getattr(transformer, "_supports_gradient_checkpointing", False) and enable_checkpointing is not None:
+        enable_checkpointing()
+
 
 def flux_edm_denoiser(
     transformer: nn.Module,
@@ -63,32 +126,88 @@ def flux_edm_denoiser(
     ``edm_score_fn`` / ``edm_generator``, none of which need any change to support this -- both are
     already autograd-compatible (pure ``torch.cat``/reshape/subtract, no ``.detach()``/``no_grad()``).
     """
-    from diffusers import FluxPipeline  # type: ignore[attr-defined]  # older diffusers lack this
-
     c, h, w = img_shape
     grad_ctx: Callable[[], contextlib.AbstractContextManager] = (
         contextlib.nullcontext if differentiable else torch.no_grad
     )
 
-    def denoiser(x: Float[Tensor, "B d"], sigma: Float[Tensor, "B"]) -> Float[Tensor, "B d"]:
+    def denoiser(x: Float[Tensor, "B ..."], sigma: Float[Tensor, "B"]) -> Float[Tensor, "B ..."]:
+        # "B ..." (not "B d"), matching generators.base.eps_to_edm_denoiser's precedent: edm_score_fn /
+        # edm_generator call this already reshaped to (B, *img_shape) whenever img_shape is set (the
+        # production case -- auto_r_common.py's original always received 4D here), so a flat-only
+        # annotation is simply wrong, not just stricter -- it rejects a call shape this function has
+        # always had to handle. The reshape below is then a no-op on that path and a real reshape on the
+        # (also-supported) flat-input path exercised directly by tests/test_flux_denoiser.py.
         b = x.shape[0]
         x_img = x.reshape(b, c, h, w)
         sig = sigma.reshape(b, 1, 1, 1).to(torch.float32)
         t = (sigma / (1.0 + sigma)).to(torch.float32)
         x_t = x_img.to(torch.float32) / (1.0 + sig)
-        with grad_ctx():
-            v = transformer(
-                hidden_states=FluxPipeline._pack_latents(x_t.to(dtype), b, c, h, w),
-                timestep=t.to(dtype),
-                guidance=torch.full((b,), guidance, device=x.device, dtype=torch.float32),
-                pooled_projections=pooled_prompt_embeds.expand(b, -1).to(dtype),
-                encoder_hidden_states=prompt_embeds.expand(b, -1, -1).to(dtype),
-                txt_ids=txt_ids, img_ids=img_ids, return_dict=False)[0]
-        v = FluxPipeline._unpack_latents(v, img_px, img_px, 8).to(torch.float32)
+        v = _flux_raw_velocity(
+            transformer, x_t, t, prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_prompt_embeds,
+            img_ids=img_ids, txt_ids=txt_ids, guidance=guidance, img_shape=img_shape, img_px=img_px,
+            dtype=dtype, grad_ctx=grad_ctx,
+        )
         x_pred = (x_t - t.reshape(b, 1, 1, 1) * v).to(torch.float32)
         return x_pred.reshape(b, c * h * w)
 
     return denoiser
+
+
+def flux_velocity_fn(
+    transformer: nn.Module,
+    prompt_embeds: Float[Tensor, "1 seq d_txt"],
+    pooled_prompt_embeds: Float[Tensor, "1 d_pool"],
+    img_ids: Tensor,
+    txt_ids: Tensor,
+    *,
+    guidance: float,
+    img_shape: tuple[int, int, int],
+    img_px: int,
+    dtype: torch.dtype,
+    differentiable: bool = False,
+) -> VelocityFn:
+    """Raw FLUX velocity ``v_theta(x_t, t)`` in the DIFFUSERS-NATIVE time convention: ``t = 1`` pure
+    noise, ``t = 0`` clean data.
+
+    **Convention warning** (this repo has a history of silent sign errors exactly here -- see
+    ``generators/flux_flowmap.py``'s docstring and its ``denoise`` vs ``map(x,t,t)`` warning): this ``t``
+    is the SAME as ``flux_edm_denoiser``'s internal ``t = sigma/(1+sigma)`` (both native-diffusers,
+    noise-increasing), and the OPPOSITE polarity to ``flux_flowmap.py``'s own stated "this repo" convention
+    (``t=0`` noise, ``t=1`` data), which applies only to that module's flow map. Do not mix the two.
+
+    Unlike ``flux_edm_denoiser``, this function takes ``t`` directly with no EDM-sigma reparameterization:
+    the sigma remap ``sigma = t/(1-t)`` is singular exactly where FLUX generation starts (``t=1``), and
+    recovering ``v`` from a returned ``x_hat_0`` needs ``v = (x_t - x_hat_0)/t``, a 0/0 at ``t=0``. This
+    function returns ``v`` itself, so callers needing ``x_hat_0 = x_t - t*v`` (e.g. test-time guidance)
+    compute it themselves with no division.
+
+    ``differentiable=True`` freezes every transformer parameter (``requires_grad_(False)``) and sets
+    ``eval()`` itself (unlike ``flux_edm_denoiser``, which leaves freezing to the caller) -- the returned
+    callable also carries a ``.module`` attribute pointing at the transformer, so a caller building an
+    autograd graph through it can assert the freeze actually held before doing so, rather than assume it.
+    Works on flat ``(B, d)`` inputs, matching ``img_shape``, like every other model wrapper in this module.
+    """
+    if differentiable:
+        _freeze(transformer)
+    c, h, w = img_shape
+    grad_ctx: Callable[[], contextlib.AbstractContextManager] = (
+        contextlib.nullcontext if differentiable else torch.no_grad
+    )
+
+    def velocity(x_t: Float[Tensor, "B d"], t: float) -> Float[Tensor, "B d"]:
+        b = x_t.shape[0]
+        x_img = x_t.reshape(b, c, h, w).to(torch.float32)
+        t_row = torch.full((b,), t, device=x_t.device, dtype=torch.float32)
+        v = _flux_raw_velocity(
+            transformer, x_img, t_row, prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_prompt_embeds,
+            img_ids=img_ids, txt_ids=txt_ids, guidance=guidance, img_shape=img_shape, img_px=img_px,
+            dtype=dtype, grad_ctx=grad_ctx,
+        )
+        return v.reshape(b, c * h * w)
+
+    velocity.module = transformer  # type: ignore[attr-defined]  # exposed so callers can verify the freeze
+    return velocity
 
 
 def build_flux_denoiser(
@@ -130,7 +249,7 @@ def build_flux_denoiser(
         torch.cuda.empty_cache()
     transformer = pipe.transformer.eval()
     if differentiable:
-        transformer.requires_grad_(False)
+        _freeze(transformer)
 
     c, h, w = 16, img // 8, img // 8
     img_ids = FluxPipeline._prepare_latent_image_ids(1, h // 2, w // 2, device, dtype)

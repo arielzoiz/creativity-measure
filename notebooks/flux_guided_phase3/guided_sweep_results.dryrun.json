@@ -1,0 +1,98 @@
+{
+  "stamp": {
+    "dry_run": true,
+    "d": 256,
+    "n_heldout": 4,
+    "n_steps": 6,
+    "lambdas": [
+      0.0,
+      0.5,
+      1.0,
+      2.0
+    ],
+    "jacobian_modes": [
+      false,
+      true
+    ]
+  },
+  "lam0.0_exactFalse_seed0": {
+    "lam": 0.0,
+    "exact_jacobian": false,
+    "seed": 0,
+    "f_mean": 0.8444950580596924,
+    "f_std": 0.03608177229762077,
+    "applied_norm_mean": 0.0,
+    "oom_fallback_any": false,
+    "elapsed_s": 0.11520075798034668
+  },
+  "lam0.5_exactFalse_seed0": {
+    "lam": 0.5,
+    "exact_jacobian": false,
+    "seed": 0,
+    "f_mean": 1.1109079122543335,
+    "f_std": 0.05278734862804413,
+    "applied_norm_mean": 4.756595849990845,
+    "oom_fallback_any": false,
+    "elapsed_s": 1.1210212707519531
+  },
+  "lam1.0_exactFalse_seed0": {
+    "lam": 1.0,
+    "exact_jacobian": false,
+    "seed": 0,
+    "f_mean": 1.4427889585494995,
+    "f_std": 0.08159045875072479,
+    "applied_norm_mean": 9.473356405893961,
+    "oom_fallback_any": false,
+    "elapsed_s": 1.096752643585205
+  },
+  "lam2.0_exactFalse_seed0": {
+    "lam": 2.0,
+    "exact_jacobian": false,
+    "seed": 0,
+    "f_mean": 2.304090976715088,
+    "f_std": 0.16002140939235687,
+    "applied_norm_mean": 18.910676956176758,
+    "oom_fallback_any": false,
+    "elapsed_s": 1.1060764789581299
+  },
+  "lam0.0_exactTrue_seed0": {
+    "lam": 0.0,
+    "exact_jacobian": true,
+    "seed": 0,
+    "f_mean": 0.8444950580596924,
+    "f_std": 0.03608177229762077,
+    "applied_norm_mean": 0.0,
+    "oom_fallback_any": false,
+    "elapsed_s": 0.09792280197143555
+  },
+  "lam0.5_exactTrue_seed0": {
+    "lam": 0.5,
+    "exact_jacobian": true,
+    "seed": 0,
+    "f_mean": 1.1246583461761475,
+    "f_std": 0.04606564715504646,
+    "applied_norm_mean": 4.844094435373942,
+    "oom_fallback_any": false,
+    "elapsed_s": 1.1362364292144775
+  },
+  "lam1.0_exactTrue_seed0": {
+    "lam": 1.0,
+    "exact_jacobian": true,
+    "seed": 0,
+    "f_mean": 1.4901796579360962,
+    "f_std": 0.05724654346704483,
+    "applied_norm_mean": 9.791107495625814,
+    "oom_fallback_any": false,
+    "elapsed_s": 1.1417357921600342
+  },
+  "lam2.0_exactTrue_seed0": {
+    "lam": 2.0,
+    "exact_jacobian": true,
+    "seed": 0,
+    "f_mean": 2.470292806625366,
+    "f_std": 0.10343984514474869,
+    "applied_norm_mean": 19.877455711364746,
+    "oom_fallback_any": false,
+    "elapsed_s": 1.1776859760284424
+  }
+}

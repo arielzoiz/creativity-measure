@@ -278,3 +278,58 @@ class SquaredIIDGlobalIEMDistance(IIDGlobalIEMDistance, SquaredGlobalIEMDistance
         s_bar, spread = self._stats(x_refs, weights, ref_scores)
         batch_scores = self._batch_scores(X, x_refs, ref_scores, W, gammas)
         return iid_iem_sq_expected(batch_scores, s_bar, spread, self.gamma_weights.to(device=device, dtype=dtype))
+
+    def expected_gamma_chunk(
+        self,
+        X: Float[Tensor, "B d"],
+        x_refs: Float[Tensor, "R d"],
+        g_lo: int,
+        g_hi: int,
+        weights: Float[Tensor, "R"] | None = None,
+    ) -> Float[Tensor, "B"]:
+        """Partial weighted sum over gamma indices ``[g_lo, g_hi)`` of ``expected(X, x_refs, weights)``.
+
+        Summing this over a full partition of ``[0, G)`` reproduces ``expected()`` exactly (up to
+        floating-point reduction order): the total is ``sum_g w_g * mean_e term[g,e,b]``
+        (``iid_iem_sq_expected``), and each gamma's term depends only on ``gammas[g]``/``W[g]`` -- a
+        memory knob, exactly like the existing ``r_chunk``, never a behaviour change. Added for
+        ``creativity_measure/flux_guided.py``'s OOM fallback (ROADMAP.md Phase 3 step 1b): score rows
+        are ``G * N_eps * B``, so at ``B = 1`` chunking the batch axis buys nothing -- this chunks the
+        MC (gamma) axis instead, which is where the memory actually is.
+
+        Uses the SAME frozen ``W`` as ``expected()`` (builds the full-``G`` noise via ``self._noise``,
+        matching the seeded generator's deterministic output, THEN slices) -- never re-draws, so the
+        eps rows for gammas ``[g_lo, g_hi)`` are bit-identical to what ``expected()`` would use for the
+        same indices. This is required, not just convenient: ``Reward`` demands ``f`` be a deterministic
+        function of ``x`` (invariant 1), so an OOM-fallback path that quietly redrew noise would change
+        what ``f`` measures without changing its code.
+
+        The reference side (bank/stats) is computed for the FULL ``G`` and sliced afterward, never
+        recomputed per chunk: it is cached (``_ref_scores``/``_stats`` short-circuit on an unchanged
+        ``x_refs``) and its cost is O(R), not O(B) -- not what chunking needs to bound. Only the batch
+        side's score computation (``self._bank(X, W_c, gammas_c)``, one real transformer forward per
+        gamma in the chunk) is restricted to ``[g_lo, g_hi)``; that is the actual memory saving, and
+        slicing a fully-computed ``batch_scores`` after the fact (instead of computing only the chunk)
+        would defeat the whole point.
+        """
+        G = self.gammas.shape[0]
+        if not (0 <= g_lo < g_hi <= G):
+            raise ValueError(f"g_lo={g_lo}, g_hi={g_hi} out of range for G={G}")
+        device, dtype = X.device, X.dtype
+        gammas_full = self.gammas.to(device=device, dtype=dtype)
+        W_full = self._noise(X.shape[1], device, dtype)
+
+        ref_scores_full = self._ref_scores(x_refs, W_full, gammas_full)
+        s_bar_full, spread_full = self._stats(x_refs, weights, ref_scores_full)
+
+        gammas_c = gammas_full[g_lo:g_hi]
+        W_c = W_full[g_lo:g_hi]
+        gweights_c = self.gamma_weights.to(device=device, dtype=dtype)[g_lo:g_hi]
+        s_bar_c, spread_c = s_bar_full[g_lo:g_hi], spread_full[g_lo:g_hi]
+
+        if (self.cache_refs and not X.requires_grad
+                and self._points_key(X) == self._points_key(x_refs)):
+            batch_scores_c = ref_scores_full[g_lo:g_hi]
+        else:
+            batch_scores_c = self._bank(X, W_c, gammas_c)
+        return iid_iem_sq_expected(batch_scores_c, s_bar_c, spread_c, gweights_c)

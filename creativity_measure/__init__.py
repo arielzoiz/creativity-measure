@@ -31,12 +31,16 @@ from creativity_measure.flowmap_smc import (
     flowmap_smc_sample, FlowMapSMCResult, StepSnapshot, StepCallback,
     BaseSchedule, LinearSchedule, SCHEDULES, ddpm_step, flow_map_step,
 )
+from creativity_measure.flux_guided import (
+    flux_guided_sample, FluxGuidedResult,
+)
 from creativity_measure.generators import (
     heun_prob_flow, karras_sigma_schedule, edm_ode_step,
     density_denoiser, density_generator, edm_generator,
     eps_to_edm_denoiser,
     build_edm_pixel_generator, build_edm_pixel_generator_from_pkl,
     build_tiny_sd_generator, build_flux_generator,
+    VelocityFn, flux_edm_denoiser, flux_velocity_fn, build_flux_denoiser,
     DualTimeEmbedder, load_flow_map_weights, FluxFlowMap, flow_map_denoiser,
     build_flux_flow_map,
 )
