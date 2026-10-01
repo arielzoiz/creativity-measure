@@ -84,7 +84,6 @@ EXPECTED_NAMES = [
     "build_edm_pixel_generator",
     "build_edm_pixel_generator_from_pkl",
     "build_tiny_sd_generator",
-    "build_flux_generator",
 ]
 
 

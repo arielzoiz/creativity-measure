@@ -39,7 +39,7 @@ from creativity_measure.generators import (
     density_denoiser, density_generator, edm_generator,
     eps_to_edm_denoiser,
     build_edm_pixel_generator, build_edm_pixel_generator_from_pkl,
-    build_tiny_sd_generator, build_flux_generator,
+    build_tiny_sd_generator,
     VelocityFn, GuidableVelocityFn, flux_edm_denoiser, flux_velocity_fn,
     build_flux_denoiser, GuidanceBackend, build_flux_guidance,
     DualTimeEmbedder, load_flow_map_weights, FluxFlowMap, flow_map_denoiser,

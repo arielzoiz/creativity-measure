@@ -12,8 +12,8 @@ native-t velocity convention (e.g. SD3/SD3.5, which share FLUX's `FlowMatchEuler
 family) can plug in the same way; see CLAUDE.md's "Adding a New Flow-Matching Backend" section.
 
 TIME CONVENTION (read this before touching any t in this file): every t here is diffusers-native --
-t = 1 is pure noise, t = 0 is clean data -- matching `generators.flux.flux_velocity_fn`'s internal
-convention (`VelocityFn`'s definition in `_types.py` states this explicitly). This is the OPPOSITE
+t = 1 is pure noise, t = 0 is clean data -- the convention `VelocityFn` itself declares (`_types.py`),
+which every backend's velocity function must match. This is the OPPOSITE
 polarity to `generators/flux_flowmap.py`'s own stated "this repo" convention (t=0 noise, t=1 data),
 which applies only to that module's flow map. This repo has a history of exactly this class of silent
 sign error (see flux_flowmap.py's docstring); do not mix the two.
@@ -260,9 +260,9 @@ def flow_guided_sample(
         if any(p.requires_grad for p in module.parameters()) or module.training:
             raise ValueError(
                 "exact_jacobian=True requires velocity_fn.module to be frozen (requires_grad_(False)) "
-                "and in eval() -- build it with flux_velocity_fn(..., differentiable=True). Skipping this "
-                "check would let autograd allocate gradient buffers for every model parameter and OOM "
-                "on the first backward."
+                "and in eval() -- build it with flux_velocity_fn(..., differentiable=True) (or another "
+                "backend's equivalent). Skipping this check would let autograd allocate gradient buffers "
+                "for every model parameter and OOM on the first backward."
             )
 
     x_refs = reward.x_refs

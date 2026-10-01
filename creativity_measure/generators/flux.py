@@ -1,11 +1,18 @@
-"""FLUX.1-schnell/dev denoiser wrapper (GPU production).  SCAFFOLD -- not yet functional.
+"""FLUX.1-dev denoiser wrapper (GPU production).
 
 FLUX is a flow-matching (rectified-flow) transformer operating on *packed* 16-channel latents (patchified
 to a sequence, with ``img_ids`` / ``txt_ids`` / ``guidance`` inputs), and its transformer returns a velocity
-field -- not an EDM ``E[X | x_sigma]`` on a ``(16, 64, 64)`` grid. Correctly mapping that velocity + latent
-packing into the EDM denoiser convention this repo's ODE integrates requires real GPU validation, so it is
-deliberately left as a documented ``NotImplementedError`` rather than shipping the (incorrect) placeholder
-call from the design notes.
+field -- not an EDM ``E[X | x_sigma]`` on a ``(16, 64, 64)`` grid. ``flux_edm_denoiser``/``flux_velocity_fn``
+map that velocity + latent packing into, respectively, this repo's EDM denoiser convention and the
+diffusers-native flow-matching convention (``VelocityFn``, ``creativity_measure/_types.py``); both are
+real, GPU-verified (Phase 1/2/3, `notebooks/iid_iem_flux_check/ROADMAP.md`), as are ``build_flux_denoiser``
+and ``build_flux_guidance``.
+
+A full ``G(z): N(0,I) -> x`` generator (the standard interface every other model wrapper in this package
+returns) is just ``edm_generator(flux_edm_denoiser(...), ...)`` -- every FLUX sweep script already does
+exactly this, by hand, to build reference latents. There is no ``build_flux_generator`` convenience
+wrapper for it (removed as unused scaffolding -- it targeted FLUX.1-schnell specifically, which this repo
+has never needed); add one if a future use case actually wants the one-call form or a schnell backend.
 
 ``diffusers`` is imported lazily (optional ``models`` extra); importing this module -- or
 ``creativity_measure`` -- never requires it.
@@ -24,11 +31,8 @@ from torch import Tensor
 from creativity_measure._types import GuidableVelocityFn, VelocityFn
 from creativity_measure.distances.edm_adapter import Denoiser, chunked_denoiser
 
-# NOTE: once implemented, this module will import and use ``edm_generator`` / ``eps_to_edm_denoiser``
-# from ``.base`` to return the standard generator interface (see the scaffold TODO below).
-
 _MISSING_DEPS_MSG = (
-    "build_flux_generator needs 'diffusers' and 'transformers'. "
+    "This function needs 'diffusers' and 'transformers'. "
     "Install the optional model deps:  pip install -e '.[models]'"
 )
 
@@ -228,8 +232,8 @@ def build_flux_denoiser(
     Phase 2. The prompt encoders are always run under ``no_grad()`` and discarded after encoding: the
     prompt conditioning itself is never a gradient target, matching ``auto_r_common.py``'s ``build()``.
 
-    Default ``model_id`` is FLUX.1-dev (not FLUX.1-schnell, unlike ``build_flux_generator`` above) to
-    match Phase 1 and every FLUX finding in CLAUDE.md, all anchored on FLUX.1-dev.
+    Default ``model_id`` is FLUX.1-dev to match Phase 1 and every FLUX finding in CLAUDE.md, all anchored
+    on FLUX.1-dev.
     """
     try:
         from diffusers import FluxPipeline  # type: ignore[attr-defined]  # older diffusers lack this
@@ -261,47 +265,6 @@ def build_flux_denoiser(
     return chunked_denoiser(denoiser, max_denoiser_rows)
 
 
-def build_flux_generator(
-    prompt: str,
-    *,
-    model_id: str = "black-forest-labs/FLUX.1-schnell",
-    n_steps: int = 4,
-    device: str = "cuda",
-) -> Callable[[Float[Tensor, "B d"]], Float[Tensor, "B d"]]:
-    """Build a deterministic latent-space generator ``G(z)`` for a text prompt on FLUX (GPU).
-
-    SCAFFOLD: pre-encodes the prompt (dual encoders) to fix the interface, but the velocity->denoiser +
-    latent-packing conversion is not yet implemented (needs GPU validation).
-    """
-    try:
-        from diffusers import FluxPipeline  # type: ignore[attr-defined]  # older diffusers lack this
-    except ImportError as e:                                  # pragma: no cover - exercised without deps
-        raise ImportError(_MISSING_DEPS_MSG) from e
-
-    pipe = FluxPipeline.from_pretrained(model_id, torch_dtype=torch.bfloat16).to(device)
-
-    # Pre-encode the prompt with FLUX's dual (CLIP + T5) encoders to lock the interface.
-    with torch.no_grad():
-        prompt_embeds, pooled_prompt_embeds, _ = pipe.encode_prompt(
-            prompt=prompt, prompt_2=prompt, max_sequence_length=256
-        )
-
-    # TODO(gpu-validation): wire the FLUX transformer into the EDM denoiser convention.
-    #   FLUX predicts a velocity on *packed* latents (B, seq, 16*2*2) with img_ids/txt_ids/guidance, so a
-    #   correct denoiser must (a) pack (16,64,64) -> sequence + build the position ids, (b) call
-    #   pipe.transformer(hidden_states=..., timestep=sigma-mapped, encoder_hidden_states=prompt_embeds,
-    #   pooled_projections=pooled_prompt_embeds, ...), (c) convert the returned velocity to E[X|x_sigma],
-    #   and (d) unpack back to (16,64,64).  Validate end-to-end on GPU before enabling.
-    raise NotImplementedError(
-        "build_flux_generator is a scaffold: the FLUX velocity->EDM-denoiser + latent-packing mapping "
-        "is not implemented yet (requires GPU validation). Use build_tiny_sd_generator on CPU or "
-        "build_edm_pixel_generator with an EDM checkpoint in the meantime."
-    )
-
-    # Once implemented, the module will end with:
-    #   return edm_generator(denoiser, img_shape=(16, 64, 64), n_steps=n_steps)
-
-
 @dataclass
 class GuidanceBackend:
     """Everything a ``flow_guided_sample`` caller needs from one pretrained flow-matching model.
@@ -317,6 +280,10 @@ class GuidanceBackend:
     denoiser: Denoiser                                         # for building the reward's score_fn
     decode: Callable[[Float[Tensor, "B d"]], Tensor] | None    # flat latents -> images in [0, 1]
     d: int
+    img_shape: tuple[int, int, int]    # (C, H, W); needed to build a reference generator via
+                                        # generators.base.edm_generator(denoiser, img_shape=..., ...)
+                                        # -- without this a caller has to re-derive FLUX's own
+                                        # channel/patch split by hand, same gap this function exists to close
     device: torch.device
     dtype: torch.dtype
 
@@ -385,5 +352,6 @@ def build_flux_guidance(
         return torch.cat(outs)
 
     return GuidanceBackend(
-        velocity_fn=velocity_fn, denoiser=denoiser, decode=decode, d=d, device=device, dtype=dtype,
+        velocity_fn=velocity_fn, denoiser=denoiser, decode=decode, d=d, img_shape=(c, h, w),
+        device=device, dtype=dtype,
     )
