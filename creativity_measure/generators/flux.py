@@ -13,12 +13,15 @@ call from the design notes.
 
 import contextlib
 from collections.abc import Callable
+from dataclasses import dataclass
+from typing import cast
 
 import torch
 import torch.nn as nn
 from jaxtyping import Float
 from torch import Tensor
 
+from creativity_measure._types import GuidableVelocityFn, VelocityFn
 from creativity_measure.distances.edm_adapter import Denoiser, chunked_denoiser
 
 # NOTE: once implemented, this module will import and use ``edm_generator`` / ``eps_to_edm_denoiser``
@@ -28,10 +31,6 @@ _MISSING_DEPS_MSG = (
     "build_flux_generator needs 'diffusers' and 'transformers'. "
     "Install the optional model deps:  pip install -e '.[models]'"
 )
-
-# (x_t: (B, d), t: float) -> v_theta(x_t, t): (B, d), in the DIFFUSERS-NATIVE time convention
-# (t = 1 pure noise, t = 0 clean data). See `flux_velocity_fn` for the convention warning.
-VelocityFn = Callable[[Float[Tensor, "B d"], float], Float[Tensor, "B d"]]
 
 
 def _flux_raw_velocity(
@@ -166,7 +165,7 @@ def flux_velocity_fn(
     img_px: int,
     dtype: torch.dtype,
     differentiable: bool = False,
-) -> VelocityFn:
+) -> GuidableVelocityFn:
     """Raw FLUX velocity ``v_theta(x_t, t)`` in the DIFFUSERS-NATIVE time convention: ``t = 1`` pure
     noise, ``t = 0`` clean data.
 
@@ -207,7 +206,7 @@ def flux_velocity_fn(
         return v.reshape(b, c * h * w)
 
     velocity.module = transformer  # type: ignore[attr-defined]  # exposed so callers can verify the freeze
-    return velocity
+    return cast(GuidableVelocityFn, velocity)  # true as of the line above; pyright can't see the dynamic attr
 
 
 def build_flux_denoiser(
@@ -301,3 +300,90 @@ def build_flux_generator(
 
     # Once implemented, the module will end with:
     #   return edm_generator(denoiser, img_shape=(16, 64, 64), n_steps=n_steps)
+
+
+@dataclass
+class GuidanceBackend:
+    """Everything a ``flow_guided_sample`` caller needs from one pretrained flow-matching model.
+
+    The shape any ``build_<backend>_guidance`` function should return (this module's
+    ``build_flux_guidance`` is the reference implementation) -- defined here rather than in
+    ``_types.py`` to avoid a circular import (``Denoiser`` comes from ``distances/edm_adapter.py``,
+    which itself imports ``ScoreFn`` from ``_types.py``); promote it to a shared location if/when a
+    second backend actually needs to import this exact type.
+    """
+
+    velocity_fn: GuidableVelocityFn
+    denoiser: Denoiser                                         # for building the reward's score_fn
+    decode: Callable[[Float[Tensor, "B d"]], Tensor] | None    # flat latents -> images in [0, 1]
+    d: int
+    device: torch.device
+    dtype: torch.dtype
+
+
+def build_flux_guidance(
+    *,
+    model_id: str = "black-forest-labs/FLUX.1-dev",
+    prompt: str = "A dog",
+    guidance: float = 1.5,
+    img: int = 512,
+    max_denoiser_rows: int = 24,
+    device: str | torch.device = "cuda",
+    dtype: torch.dtype = torch.bfloat16,
+    differentiable: bool = True,
+) -> GuidanceBackend:
+    """Load FLUX.1-dev once and return everything a ``flow_guided_sample`` caller needs: a
+    differentiable ``velocity_fn`` (for the guided ODE), a chunked EDM ``denoiser`` (for the reward's
+    ``score_fn``), and a ``decode`` closure (latents -> images).
+
+    Mirrors the loading steps currently duplicated by hand in
+    ``notebooks/flux_guided_phase3/{guided_sweep.py, fine_lambda_sweep.py}`` and the deliverable
+    notebook's setup cell -- this is the single-call replacement for that duplication, for future
+    callers. Today's three callers are intentionally left as they are; this function is additive.
+    """
+    try:
+        from diffusers import FluxPipeline  # type: ignore[attr-defined]  # older diffusers lack this
+    except ImportError as e:                                  # pragma: no cover - exercised without deps
+        raise ImportError(_MISSING_DEPS_MSG) from e
+
+    device = torch.device(device)
+    c, h, w = 16, img // 8, img // 8
+    d = c * h * w
+
+    pipe = FluxPipeline.from_pretrained(model_id, torch_dtype=dtype).to(device)
+    with torch.no_grad():
+        prompt_embeds, pooled_prompt_embeds, text_ids = pipe.encode_prompt(
+            prompt=prompt, prompt_2=None, device=device, max_sequence_length=512)
+    assert prompt_embeds is not None and pooled_prompt_embeds is not None, "encode_prompt returned None"
+    # Free both text encoders (~9.5 GB, T5 dominates): the embeddings above are all we need.
+    pipe.text_encoder = pipe.text_encoder_2 = pipe.tokenizer = pipe.tokenizer_2 = None
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    transformer, vae = pipe.transformer.eval(), pipe.vae.eval()
+    vae_sf, vae_shift = vae.config.scaling_factor, vae.config.shift_factor
+    img_ids = FluxPipeline._prepare_latent_image_ids(1, h // 2, w // 2, device, dtype)
+    txt_ids = text_ids if text_ids.ndim == 2 else text_ids[0]
+
+    velocity_fn = flux_velocity_fn(
+        transformer, prompt_embeds, pooled_prompt_embeds, img_ids, txt_ids,
+        guidance=guidance, img_shape=(c, h, w), img_px=img, dtype=dtype, differentiable=differentiable,
+    )
+    denoiser = flux_edm_denoiser(
+        transformer, prompt_embeds, pooled_prompt_embeds, img_ids, txt_ids,
+        guidance=guidance, img_shape=(c, h, w), img_px=img, dtype=dtype, differentiable=differentiable,
+    )
+    denoiser = chunked_denoiser(denoiser, max_denoiser_rows)
+
+    def decode(flat: Float[Tensor, "B d"], chunk: int = 2) -> Tensor:
+        outs = []
+        for i in range(0, flat.shape[0], chunk):
+            lat = flat[i : i + chunk].reshape(-1, c, h, w).to(device, dtype) / vae_sf + vae_shift
+            with torch.no_grad():
+                im = vae.decode(lat).sample
+            post: Tensor = pipe.image_processor.postprocess(im.float(), output_type="pt")  # type: ignore[assignment]
+            outs.append(post.cpu())
+        return torch.cat(outs)
+
+    return GuidanceBackend(
+        velocity_fn=velocity_fn, denoiser=denoiser, decode=decode, d=d, device=device, dtype=dtype,
+    )

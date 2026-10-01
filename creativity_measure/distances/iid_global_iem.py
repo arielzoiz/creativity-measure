@@ -293,7 +293,7 @@ class SquaredIIDGlobalIEMDistance(IIDGlobalIEMDistance, SquaredGlobalIEMDistance
         floating-point reduction order): the total is ``sum_g w_g * mean_e term[g,e,b]``
         (``iid_iem_sq_expected``), and each gamma's term depends only on ``gammas[g]``/``W[g]`` -- a
         memory knob, exactly like the existing ``r_chunk``, never a behaviour change. Added for
-        ``creativity_measure/flux_guided.py``'s OOM fallback (ROADMAP.md Phase 3 step 1b): score rows
+        ``creativity_measure/flow_guided.py``'s OOM fallback (ROADMAP.md Phase 3 step 1b): score rows
         are ``G * N_eps * B``, so at ``B = 1`` chunking the batch axis buys nothing -- this chunks the
         MC (gamma) axis instead, which is where the memory actually is.
 

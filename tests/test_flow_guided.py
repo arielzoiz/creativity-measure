@@ -1,4 +1,4 @@
-"""Tests for the Phase-3 guided sampler (creativity_measure/flux_guided.py).
+"""Tests for the Phase-3 guided sampler (creativity_measure/flow_guided.py), via its FLUX backend.
 
 CPU-only, driving a tiny real FluxTransformer2DModel (same recipe as test_flux_denoiser.py) plus the
 real i.i.d. squared-IEM reward wired to it -- proves the plumbing (schedule, windowing, scaling,
@@ -20,7 +20,7 @@ from creativity_measure import (
 )
 from creativity_measure.distances.base import Distance
 from creativity_measure.distances.edm_adapter import edm_score_fn
-from creativity_measure.flux_guided import FluxGuidedResult, _flux_shifted_schedule, _reward_grad, flux_guided_sample
+from creativity_measure.flow_guided import FlowGuidedResult, _shifted_schedule, _reward_grad, flow_guided_sample
 from creativity_measure.generators.flux import flux_edm_denoiser, flux_velocity_fn
 
 C, H, W = 16, 4, 4          # same tiny "image" shape as test_flux_denoiser.py
@@ -76,7 +76,7 @@ def _build_reward(transformer: Any, *, r_refs: int = 4):
         return NormalizedExpectedDistanceReward(dist, x_refs)
 
 
-def _run(transformer, *, lam: float = 0.0, n_samples: int = 2, seed: int | None = 0, **kw: Any) -> FluxGuidedResult:
+def _run(transformer, *, lam: float = 0.0, n_samples: int = 2, seed: int | None = 0, **kw: Any) -> FlowGuidedResult:
     velocity_fn = _build_velocity_fn(transformer, differentiable=kw.pop("differentiable", True))
     reward = _build_reward(transformer)
     # dict[str, Any]: kw carries a mix of int/float/bool/str, which pyright would otherwise narrow from
@@ -84,7 +84,7 @@ def _run(transformer, *, lam: float = 0.0, n_samples: int = 2, seed: int | None 
     # fix as tests/test_diamond_smc.py's `defaults` earlier this session.
     defaults: dict[str, Any] = dict(n_steps=3, shift=1.0)
     defaults.update(kw)
-    return flux_guided_sample(reward, lam, n_samples, velocity_fn=velocity_fn, seed=seed, **defaults)
+    return flow_guided_sample(reward, lam, n_samples, velocity_fn=velocity_fn, seed=seed, **defaults)
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -97,11 +97,11 @@ def test_lambda_zero_matches_an_unguided_reference_loop_bitwise():
     velocity_fn = _build_velocity_fn(transformer, differentiable=True)
     reward = _build_reward(transformer)
 
-    res = flux_guided_sample(reward, 0.0, 2, velocity_fn=velocity_fn, n_steps=4, shift=1.0, seed=7)
+    res = flow_guided_sample(reward, 0.0, 2, velocity_fn=velocity_fn, n_steps=4, shift=1.0, seed=7)
 
     gen = torch.Generator().manual_seed(7)
     x = torch.randn(2, D, generator=gen, dtype=torch.float32)
-    schedule = _flux_shifted_schedule(4, 1.0, device=x.device, dtype=torch.float32)
+    schedule = _shifted_schedule(4, 1.0, device=x.device, dtype=torch.float32)
     for i in range(4):
         t_from, t_to = float(schedule[i]), float(schedule[i + 1])
         with torch.no_grad():
@@ -207,14 +207,16 @@ def test_exact_jacobian_raises_before_building_a_graph_if_unfrozen():
     velocity_fn = _build_velocity_fn(transformer, differentiable=False)  # differentiable=False -> not frozen
     reward = _build_reward(transformer)
     with pytest.raises(ValueError, match="frozen"):
-        flux_guided_sample(reward, 1.0, 2, velocity_fn=velocity_fn, n_steps=2, exact_jacobian=True, seed=0)
+        flow_guided_sample(reward, 1.0, 2, velocity_fn=velocity_fn, n_steps=2, exact_jacobian=True, seed=0)
 
 
 def test_differentiable_velocity_fn_freezes_and_evals_its_module():
     transformer = _tiny_transformer()
     transformer.train()  # perturb both checks on purpose
     velocity_fn = _build_velocity_fn(transformer, differentiable=True)
-    module = getattr(velocity_fn, "module")  # VelocityFn's static type has no .module; see flux.py
+    module = getattr(velocity_fn, "module")  # VelocityFn's static type has no .module; GuidableVelocityFn
+                                              # (_types.py) formalizes this, but flux_velocity_fn's plain
+                                              # function return still needs getattr here, not isinstance
     assert all(not p.requires_grad for p in module.parameters())
     assert not module.training
 
@@ -274,8 +276,8 @@ def test_guidance_moves_toward_higher_reward():
     strictly smaller ||X|| (hence strictly higher f = -0.5||X||^2) than the unguided 0.25*x0."""
     reward = Reward(distance=_QuadraticDistance(), x_refs=torch.zeros(1, 8))
 
-    res_unguided = flux_guided_sample(reward, 0.0, 4, velocity_fn=_identity_velocity, n_steps=2, shift=1.0, seed=11)
-    res_guided = flux_guided_sample(reward, 0.3, 4, velocity_fn=_identity_velocity, n_steps=2, shift=1.0, seed=11)
+    res_unguided = flow_guided_sample(reward, 0.0, 4, velocity_fn=_identity_velocity, n_steps=2, shift=1.0, seed=11)
+    res_guided = flow_guided_sample(reward, 0.3, 4, velocity_fn=_identity_velocity, n_steps=2, shift=1.0, seed=11)
 
     assert reward(res_guided.X).mean() > reward(res_unguided.X).mean()
 
@@ -303,7 +305,7 @@ def test_oom_fallback_gradient_matches_the_batched_gradient():
 
 def test_oom_fallback_exact_path_matches_the_batched_gradient():
     """The exact path's grad target (x_req) differs from the reward's input (x_hat_0) -- confirm the
-    fallback's retain_graph=True-until-last-chunk handling (flux_guided.py's documented caveat: the
+    fallback's retain_graph=True-until-last-chunk handling (flow_guided.py's documented caveat: the
     shared v_theta subgraph must outlive every non-final chunk) still gives the right gradient."""
     transformer = _tiny_transformer()
     transformer.requires_grad_(False)
@@ -326,7 +328,7 @@ def test_oom_fallback_exact_path_matches_the_batched_gradient():
 
 
 def test_guided_sample_records_oom_fallback_when_forced():
-    """End-to-end: flux_guided_sample's own oom_fallback_history reflects the fallback firing, using a
+    """End-to-end: flow_guided_sample's own oom_fallback_history reflects the fallback firing, using a
     Distance whose expected() raises OOM on exactly the first grad-requiring call (i.e. the first real
     guided step, whichever call-count that happens to be -- not counted precisely on purpose, so this
     doesn't depend on exactly how many no_grad diagnostic/setup calls precede it) so the real fallback
@@ -348,7 +350,22 @@ def test_guided_sample_records_oom_fallback_when_forced():
 
     reward.distance.__class__ = _OOMOnFirstGradCall   # swap the class in place; fields are unchanged
 
-    res = flux_guided_sample(reward, 1.0, 2, velocity_fn=velocity_fn, n_steps=2, shift=1.0, seed=5,
+    res = flow_guided_sample(reward, 1.0, 2, velocity_fn=velocity_fn, n_steps=2, shift=1.0, seed=5,
                               g_chunk=1)
     assert state["raised"]
     assert any(res.oom_fallback_history)
+
+
+# ---------------------------------------------------------------------------------------------------
+# Clean rename: no backwards-compat shim under the old FLUX-specific names (this repo's practice --
+# e.g. the superseded GlobalIEMDistance/Reward pair is documented as such, not aliased).
+# ---------------------------------------------------------------------------------------------------
+
+def test_renamed_public_surface_is_clean():
+    import creativity_measure
+
+    assert creativity_measure.flow_guided_sample is flow_guided_sample
+    assert creativity_measure.FlowGuidedResult is FlowGuidedResult
+    assert not hasattr(creativity_measure, "flux_guided_sample")
+    assert not hasattr(creativity_measure, "FluxGuidedResult")
+    assert not hasattr(creativity_measure, "flux_guided")

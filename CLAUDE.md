@@ -31,11 +31,13 @@ Everything else (distances, refsets, generators) is fixed infrastructure that an
   a DDPM transition per step, then a posterior lookahead through the diamond map to reweight. Entry point `diamond_smc_sample`.
 - **Alg 3** — `flowmap_smc.py` — a **single forward pass** noise $\to$ data with one lookahead per step: no tempering ladder, no rejuvenation, no acceptance rate to collapse.
   Entry point `flowmap_smc_sample`. Cost is dominated entirely by reward evaluations.
-- **`flux_guided_sample`** (`flux_guided.py`) — not numbered with Algs 1–3: it is the first sampler built on **inference-time gradients** $\nabla_x f$ rather than SMC/MCMC
-  (Phase 3 of the gradient-guidance line, `notebooks/iid_iem_flux_check/ROADMAP.md`). At each step of FLUX's own native flow-matching ODE, nudges the velocity by
+- **`flow_guided_sample`** (`flow_guided.py`) — not numbered with Algs 1–3: it is the first sampler built on **inference-time gradients** $\nabla_x f$ rather than SMC/MCMC
+  (Phase 3 of the gradient-guidance line, `notebooks/iid_iem_flux_check/ROADMAP.md`). Backend-agnostic — it imports only the `VelocityFn` contract
+  (`creativity_measure/_types.py`), never anything from `generators/`. At each step of the model's own native flow-matching ODE, nudges the velocity by
   $\lambda \nabla_{\hat x_0} f$ (identity-Jacobian approximate mode, default) or the exact chain-ruled gradient through the transformer (`exact_jacobian=True`) —
-  no tempering ladder, no particles, no resampling; a single guided forward pass. Needs a `differentiable=True` denoiser/velocity function
-  (`generators/flux.py`'s `flux_edm_denoiser`/`flux_velocity_fn`/`build_flux_denoiser`). See Invariant 2's exception below.
+  no tempering ladder, no particles, no resampling; a single guided forward pass. Needs a `differentiable=True` denoiser/velocity function conforming to
+  `GuidableVelocityFn`; FLUX.1-dev is currently its only backend, via `generators/flux.py`'s `flux_edm_denoiser`/`flux_velocity_fn`/`build_flux_guidance`.
+  See Invariant 2's exception below, and "Adding a New Flow-Matching Backend" further down.
 - **More samplers are expected.** Adding one is a first-class contribution, not a refactor.
 
 ## Invariants Every Sampler Must Respect
@@ -44,8 +46,8 @@ Everything else (distances, refsets, generators) is fixed infrastructure that an
    so $f$ is a deterministic function of $x$ — required by SMC/MCMC theory. Never resample references mid-run.
 2. **Gradient-free — holds for Algs 1–3.** $f$ is treated as a black-box scalar; no $\nabla f$, no $\log p$ evaluations in the acceptance ratio (pCN cancels the Gaussian prior).
    `log_p_X` / `grid_normalize` / `tilted_log_density` are only used for a **2D-toy-only** version, never part of a high-d SMC/MCMC sampler.
-   **Exception: `flux_guided_sample`** (Phase 3, `notebooks/iid_iem_flux_check/ROADMAP.md`) is the first sampler to use $\nabla f$ by design — it steers FLUX's own
-   generative ODE with the reward's gradient instead of reweighting/rejuvenating. It requires a `differentiable=True` denoiser/velocity function and explicitly
+   **Exception: `flow_guided_sample`** (Phase 3, `notebooks/iid_iem_flux_check/ROADMAP.md`) is the first sampler to use $\nabla f$ by design — it steers the
+   model's own generative ODE with the reward's gradient instead of reweighting/rejuvenating. It requires a `differentiable=True` denoiser/velocity function and explicitly
    freezes every model parameter (`requires_grad_(False)`) before building any autograd graph through it, so this exception never silently reaches the frozen
    reward's weights or an unrelated sampler.
 3. **The 2D-toy-only version can be used as a reference for 2D tests, but is not ground-truth.** The 2D-toy-only sampler fails at strongs tilts and drifts off the grid,
@@ -67,6 +69,29 @@ Everything else (distances, refsets, generators) is fixed infrastructure that an
 Follow the shape of the existing two: a module in `creativity_measure/` exporting `<name>_sample(reward: Reward, lam: float, n_particles: int, *, ..., seed=None) -> <Name>Result`,
 where the result dataclass carries `X`, `logw`, and per-level **diagnostics** (ESS history, acceptance, effort). Diagnostics are not optional — in high dimensions they are the only
 way to tell whether the run worked. Export from `__init__.py`, add tests under `tests/`, and validate first on the 2D toy where the grid gives ground truth.
+
+## Adding a New Flow-Matching Backend for `flow_guided_sample`
+
+This is a different ask than the section above: not a new sampling *algorithm*, but a new pretrained model
+for the existing gradient-guidance sampler to drive. `flow_guided_sample` (`flow_guided.py`) is already
+backend-agnostic — it imports nothing from `generators/`, only the `VelocityFn`/`GuidableVelocityFn`
+contracts in `creativity_measure/_types.py`. FLUX.1-dev (`generators/flux.py`) is currently its only
+backend; a new one (e.g. SD3/SD3.5, which share FLUX's `FlowMatchEulerDiscreteScheduler` family and
+native-$t$ convention) needs to provide, per the pattern `generators/flux.py` already establishes:
+
+1. A `GuidableVelocityFn`-conforming closure: `(x_t, t) -> v` in the diffusers-native convention
+   ($t=1$ noise, $t=0$ data — see `_types.py`'s `VelocityFn`). Differentiable when asked
+   (`differentiable=True`), frozen (`requires_grad_(False)`, `.eval()`) with a `.module` attribute
+   attached when differentiable — mirror `flux_velocity_fn`'s `_freeze` call exactly; skipping this
+   lets autograd allocate gradient buffers for every parameter and OOM on the first backward.
+2. An EDM-style denoiser for the reward's `score_fn`, via the same $t = \sigma/(1+\sigma)$
+   reparametrization `flux_edm_denoiser` already demonstrates — this is generic rectified-flow↔EDM
+   algebra, not FLUX-specific, so the pattern transfers directly.
+
+Bundle both (plus a `decode` closure, if the backend has one) into a `GuidanceBackend` — see
+`generators/flux.py`'s `build_flux_guidance` for the reference implementation. This is purely a
+convenience consolidation (today's three FLUX callers still hand-build their own setup; nothing requires
+routing through `build_<backend>_guidance`), not a requirement for `flow_guided_sample` itself.
 
 ## Established Findings (don't re-derive these)
 
@@ -114,6 +139,7 @@ way to tell whether the run worked. Export from `__init__.py`, add tests under `
 - **$K$ does not predict collapse.** $K = 4$ and $K = 32$ collapsed to one lineage at step 3; $K = 8$ and $K = 16$ did not. Degeneracy is an $M$ problem, not a $K$ problem.
 - **Collapse inflates $E_{q}[f]$.** Single-lineage cells show the largest mid-run effects and the steepest decay ($K = 4$: $+4.91 \to +0.81$ sd peak-to-terminal). Never read $E_{q}[f]$ without `uniq/M`.
 - **First creative-but-recognizable Phase 3 result — and only reachable via the i.i.d. migration.** A fine $\lambda$-scan (`notebooks/flux_guided_phase3/fine_lambda_sweep.py`, jobs 958150/958630) found $\lambda \in [0.4, 3.54]$ produces images that stay recognizably "a dog" while genuinely restyled — an ink-sketch overlay, some text scrawled across it in red, a cartoon reinterpretation — before $\lambda \gtrsim 3.93$ locks onto a fixed off-manifold attractor shape regardless of further $\lambda$. This window is visible at all only because `SquaredIIDGlobalIEMDistance`'s $(\gamma, \epsilon)$ samples are mutually independent, giving a flat backward graph of $K = G \cdot N_{\epsilon}$ separable terms — exactly what `expected_gamma_chunk` needs to chunk exactly, and it fired on every single guided step of both sweeps. The Brownian bank's sequential cumsum coupling across $\gamma$ has no such decomposition, so backpropagating through it at this call rate (140 guided ODE steps per sweep) would not have been tractable the same way — Phase 1's reward (frozen i.i.d. Monte-Carlo squared-IEM) is a precondition for Phase 3 working at all, not just a cost optimization.
+  (The sampler itself was subsequently renamed `flow_guided_sample`/`flow_guided.py` for genericity — see `_types.py`'s `VelocityFn`/`GuidableVelocityFn` and "Adding a New Flow-Matching Backend" above; `notebooks/iid_iem_flux_check/ROADMAP.md`'s own Phase 3 log entries still use the original name, as a dated record of what was built at the time.)
 
 ## Resuming From a Checkpoint
 

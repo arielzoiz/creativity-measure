@@ -2,12 +2,34 @@ from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from jaxtyping import Float
-from torch import Generator, Tensor
+from torch import Generator, Tensor, nn
 
 LogP = Callable[[Float[Tensor, "... d"]], Float[Tensor, "..."]]
 LogPY = Callable[[Float[Tensor, "... d"], Float[Tensor, ""]], Float[Tensor, "..."]]
 ScoreFn = Callable[[Float[Tensor, "B d"], Float[Tensor, ""]], Float[Tensor, "B d"]]
 Sampler = Callable[[int, Generator | None], Float[Tensor, "n d"]]
+
+# Flow-matching velocity, diffusers-native t (t = 1 pure noise, t = 0 clean data): v_theta(x_t, t) -> v.
+# NOTE the polarity: this is the OPPOSITE of FlowMap below, which uses t = 0 noise / t = 1 data (that
+# repo-internal convention, see flowmap_smc.py). Getting this backwards fails silently -- see
+# creativity_measure/flow_guided.py's module docstring for the full history of this exact trap.
+VelocityFn = Callable[[Float[Tensor, "B d"], float], Float[Tensor, "B d"]]
+
+
+@runtime_checkable
+class GuidableVelocityFn(Protocol):
+    """A ``VelocityFn`` that also exposes ``.module``, the underlying frozen network.
+
+    ``flow_guided_sample``'s ``exact_jacobian=True`` path needs this to verify the model is frozen
+    (``requires_grad_(False)``, ``.eval()``) before building any autograd graph through it -- skipping
+    that check lets autograd allocate gradient buffers for every parameter and OOM on the first backward.
+    A backend's velocity-function builder (e.g. ``generators.flux.flux_velocity_fn``) should return a
+    closure conforming to this so ``exact_jacobian=True`` works for it too.
+    """
+
+    def __call__(self, x_t: Float[Tensor, "B d"], t: float) -> Float[Tensor, "B d"]: ...
+
+    module: nn.Module
 
 
 @runtime_checkable

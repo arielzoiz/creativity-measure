@@ -15,7 +15,7 @@ by key, same convention as guided_sweep.py/iid_vs_brownian.py), so a timeout or 
 in-flight config -- resubmitting picks up where it left off. Build the montage/table separately with
 render_fine_sweep.py, which only needs what's already on disk (no GPU, runs any time, including mid-sweep).
 
-CONVENTION NOTE: t is diffusers-native (t=1 noise, t=0 data) throughout, same as flux_guided.py and
+CONVENTION NOTE: t is diffusers-native (t=1 noise, t=0 data) throughout, same as flow_guided.py and
 guided_sweep.py -- read E_q[f] at t_end=0 only (the OPPOSITE polarity to CLAUDE.md's flowmap-SMC note).
 
     python fine_lambda_sweep.py            # on a GPU node (see fine_lambda_sweep.slurm)
@@ -42,7 +42,7 @@ from creativity_measure import (                                                
     NormalizedExpectedDistanceReward, SquaredIIDGlobalIEMDistance, log_uniform_gammas,
 )
 from creativity_measure.distances.edm_adapter import chunked_denoiser, edm_score_fn          # noqa: E402
-from creativity_measure.flux_guided import flux_guided_sample                                # noqa: E402
+from creativity_measure.flow_guided import flow_guided_sample                                # noqa: E402
 from creativity_measure.generators.base import edm_generator                                 # noqa: E402
 from creativity_measure.generators.flux import flux_edm_denoiser, flux_velocity_fn           # noqa: E402
 
@@ -107,7 +107,7 @@ def _build_reward_and_lam_s(denoiser, G, img_shape, d, dtype, device) -> tuple[N
 
 
 def dry_setup() -> Setup:
-    """Tiny real FluxTransformer2DModel (same recipe as tests/test_flux_guided.py), CPU, no GPU, no VAE."""
+    """Tiny real FluxTransformer2DModel (same recipe as tests/test_flow_guided.py), CPU, no GPU, no VAE."""
     import diffusers
     from diffusers import FluxPipeline
 
@@ -231,7 +231,7 @@ def run_one(S: Setup, idx: int, lam: float, res: dict) -> None:
         note(f"{key} already done: f={res[key]['f_mean']:.5f}, t={res[key]['t_guidance_s']:.1f}s")
         return
     t0 = time.time()
-    result = flux_guided_sample(
+    result = flow_guided_sample(
         S.reward, lam, N_PARTICLES, velocity_fn=S.velocity_fn, n_steps=N_STEPS_ODE, shift=SHIFT,
         t_start=1.0, t_end=0.0, exact_jacobian=True, seed=SWEEP_SEED,
     )

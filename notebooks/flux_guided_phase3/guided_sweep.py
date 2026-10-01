@@ -6,7 +6,7 @@ control" -- the untilted base process alone has been measured to give back sever
 tilt at all, cf. flowmap_smc_k_sweep/RESULTS.md).
 
 CONVENTION NOTE (this repo has a documented history of exactly this class of error, see
-creativity_measure/flux_guided.py's module docstring): every t here is diffusers-native
+creativity_measure/flow_guided.py's module docstring): every t here is diffusers-native
 (t=1 noise, t=0 data). The artifact-free endpoint for reading E_q[f] is therefore t_end=0, the
 OPPOSITE polarity to CLAUDE.md's "only t=1 is artifact-free" note, which was written for
 flowmap_smc's t=0-noise/t=1-data convention. Always read this sweep's f at t_end=0.
@@ -38,7 +38,7 @@ from creativity_measure import (                                          # noqa
     NormalizedExpectedDistanceReward, SquaredIIDGlobalIEMDistance, log_uniform_gammas,
 )
 from creativity_measure.distances.edm_adapter import edm_score_fn                          # noqa: E402
-from creativity_measure.flux_guided import flux_guided_sample                              # noqa: E402
+from creativity_measure.flow_guided import flow_guided_sample                              # noqa: E402
 from creativity_measure.generators.flux import flux_edm_denoiser, flux_velocity_fn          # noqa: E402
 
 RESULTS = os.path.join(HERE, "guided_sweep_results.json")
@@ -70,14 +70,14 @@ def _build_reward(denoiser, img_shape: tuple[int, int, int], d: int, dtype: torc
     # Ref bank is grad-free (iid_global_iem.py detaches x_refs and the bank), but building it under a
     # differentiable=True denoiser with no outer torch.no_grad() OOM'd job 957050 at 43.9/44.5 GiB on a
     # ref bank this small: several kernels pick a different, more memory-hungry path purely from
-    # torch.is_grad_enabled(), independent of any tensor's requires_grad. flux_guided_sample already
+    # torch.is_grad_enabled(), independent of any tensor's requires_grad. flow_guided_sample already
     # wraps its own ref-bank-forcing call in no_grad for this reason; this constructor call needs it too.
     with torch.no_grad():
         return NormalizedExpectedDistanceReward(dist, x_refs)
 
 
 def dry_setup() -> Setup:
-    """A tiny real FluxTransformer2DModel (same recipe as tests/test_flux_guided.py), CPU, no GPU."""
+    """A tiny real FluxTransformer2DModel (same recipe as tests/test_flow_guided.py), CPU, no GPU."""
     import diffusers
     from diffusers import FluxPipeline
 
@@ -186,7 +186,7 @@ def run_config(S: Setup, lam: float, exact_jacobian: bool, seed: int, res: dict)
         note(f"{key} already done: f={res[key]['f_mean']:.5f}")
         return
     t0 = time.time()
-    result = flux_guided_sample(
+    result = flow_guided_sample(
         S.reward, lam, N_HELDOUT, velocity_fn=S.velocity_fn, n_steps=N_STEPS,
         exact_jacobian=exact_jacobian, t_start=1.0, t_end=0.0, seed=seed,
     )

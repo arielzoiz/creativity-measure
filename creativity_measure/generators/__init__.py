@@ -18,8 +18,11 @@ from .edm_pixel import build_edm_pixel_generator, build_edm_pixel_generator_from
 from .tiny_sd import build_tiny_sd_generator
 from .flux import (
     VelocityFn,
+    GuidableVelocityFn,
+    GuidanceBackend,
     build_flux_denoiser,
     build_flux_generator,
+    build_flux_guidance,
     flux_edm_denoiser,
     flux_velocity_fn,
 )
@@ -44,9 +47,12 @@ __all__ = [
     "build_tiny_sd_generator",
     "build_flux_generator",
     "VelocityFn",
+    "GuidableVelocityFn",
+    "GuidanceBackend",
     "flux_edm_denoiser",
     "flux_velocity_fn",
     "build_flux_denoiser",
+    "build_flux_guidance",
     "DualTimeEmbedder",
     "FluxFlowMap",
     "build_flux_flow_map",

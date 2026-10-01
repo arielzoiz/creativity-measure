@@ -288,7 +288,7 @@ def test_expected_equals_weighted_mean_of_pairwise():
 
 def test_expected_gamma_chunk_partition_matches_expected():
     """A full partition of [0, G) reproduces expected() exactly (the OOM fallback's exactness claim,
-    creativity_measure/flux_guided.py). Checked at B=1 too -- the case a batch-axis chunk could not
+    creativity_measure/flow_guided.py). Checked at B=1 too -- the case a batch-axis chunk could not
     have helped (score rows are G*N_eps*B), which is why this chunks gamma, not the batch."""
     d = make()
     G0 = gammas.shape[0]

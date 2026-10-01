@@ -80,7 +80,7 @@ def _build_reward(denoiser, transformer: nn.Module, img_shape: tuple[int, int, i
     # every op with torch.is_grad_enabled()==True -- which made job 957050 OOM at 43.9/44.5 GiB on a
     # ref-bank this small (R_REFS=8): several kernels (confirmed here: F.rms_norm inside FLUX's attention)
     # pick a different, more memory-hungry code path purely from that global flag, independent of any
-    # tensor's requires_grad. flux_guided.flux_guided_sample already wraps its own one-time ref-bank-
+    # tensor's requires_grad. flow_guided.flow_guided_sample already wraps its own one-time ref-bank-
     # forcing call in torch.no_grad() for exactly this reason; this constructor call needs the same.
     with torch.no_grad():
         reward = NormalizedExpectedDistanceReward(dist, x_refs)
@@ -213,7 +213,7 @@ def run_double_backward(S: Setup, res: dict) -> None:
     *support* trap (Flash-Attention lacking a double-backward kernel at all), a different failure mode
     than running out of memory under a backend that does support it. If double-backward OOMs at full
     scale even under MATH, this is recorded as a known hardware limit, not retried further: production
-    (flux_guided.flux_guided_sample) never performs a double-backward in the first place (confirmed by
+    (flow_guided.flow_guided_sample) never performs a double-backward in the first place (confirmed by
     exploration: no nested autograd.grad anywhere in the reward chain, so create_graph=False always
     suffices there) -- this stage exists to validate the TRAP+FALLBACK mechanism itself, which the CPU
     dry-run already does; finding its ceiling on real hardware is informative, not a regression to chase.
