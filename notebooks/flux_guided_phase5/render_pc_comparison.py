@@ -1,11 +1,17 @@
 """Builds the Phase 5 three-arm comparison: one image grid plus the numeric table.
 
-Rows are the three arms (pc_guided / pc_unguided / flow_guided), columns are the 8 lambda points of
-LAM_GRID -- every other point of Phase 3's zoom grid, so a fourth row reads Phase 3's OWN stored
-max5.5 images at the same lambdas as an independent cross-check on the re-run flow_guided arm.
+Rows are DISCOVERED from whatever result files exist (each is keyed on its full config: arm, n_steps,
+corrector_steps, eta_reference, snr, seeds), so adding an ablation adds a row with no edit here. Columns
+are the union of every lambda present, snapped to Phase 3's zoom lattice. A final row reads Phase 3's OWN
+stored max5.5 images at the same lambdas, as an independent cross-check on the re-run flow_guided arm.
 
-No GPU. Only reads what is already on disk, so it can be re-run any time, including before all three
-jobs finish (cells with no result are left blank, like render_fine_sweep_5seed.py's).
+Also prints the DECISION GATE: |x|/sqrt(d) for each PC arm against the COMPUTE-MATCHED flow_guided @19
+control (19 guided units either way), which is the only comparison that separates "the corrector works"
+from "more reward-gradient evaluations work"; and the within-seed spread at fixed z0, which is the
+variance component Phase 3 structurally lacks and which sizes the seed replication.
+
+No GPU. Only reads what is already on disk, so it can be re-run any time, including mid-sweep (cells with
+no result are left blank, like render_fine_sweep_5seed.py's).
 
 HOW TO READ IT (the same warning pc_sweep.py's docstring carries, repeated here because this is the
 artifact people will actually look at): the hypothesis is NOT that the PC arms show higher f. The
@@ -30,6 +36,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from typing import Any
 
 import numpy as np
 import torch
@@ -41,16 +48,68 @@ sys.path.insert(0, HERE)
 from pc_sweep import hf_power_fraction                                                     # noqa: E402
 
 PHASE3 = os.path.join(HERE, "..", "flux_guided_phase3")
+LAM_STEP = 5.5 / 14
 
-# (row label, results json, decoded dir, base dir)
-ROWS = [
-    ("pc_guided (corr=2)", "pc_sweep_results_pc_guided.json", "pc_decoded_pc_guided", HERE),
-    ("pc_unguided (corr=2)", "pc_sweep_results_pc_unguided.json", "pc_decoded_pc_unguided", HERE),
-    ("flow_guided (corr=0, re-run)", "pc_sweep_results_flow_guided.json", "pc_decoded_flow_guided", HERE),
-    ("phase 3 max5.5 (stored)", "fine_lambda_sweep_results_max5.5.json", "fine_decoded_max5.5", PHASE3),
-]
 
-LAM_GRID = [k * 5.5 / 14 for k in range(0, 15, 2)]
+def _label(stamp: dict) -> str:
+    """Short row label from the stamp, naming only the axes a wave actually varies."""
+    arm = stamp.get("arm", "?")
+    bits = [arm]
+    if arm != "flow_guided":
+        bits.append(f"c{stamp.get('corrector_steps')}")
+        if stamp.get("eta_reference") != "total":
+            bits.append(f"eta={stamp.get('eta_reference')}")
+    n = stamp.get("n_steps_ode")
+    if n != 10:
+        bits.append(f"n{n}")
+    if stamp.get("z0_seed") is not None:
+        bits.append(f"z0={stamp['z0_seed']}/s{stamp.get('sweep_seed')}")
+    elif stamp.get("sweep_seed") != 1234:
+        bits.append(f"s{stamp.get('sweep_seed')}")
+    return " ".join(bits)
+
+
+def discover_rows() -> list[tuple[str, dict, str]]:
+    """(label, results, decoded_dir) for every Phase 5 result on disk, plus Phase 3's stored max5.5.
+
+    Globbed rather than hardcoded: results are keyed on the full config (arm / n_steps /
+    corrector_steps / eta_reference / snr / seeds), so a wave that adds an axis adds rows here with no
+    edit. Sorted so the three primary arms lead and the ablations follow.
+    """
+    import glob
+
+    rows: list[tuple[str, dict, str]] = []
+    for path in sorted(glob.glob(os.path.join(HERE, "pc_sweep_results_*.json"))):
+        if ".dryrun" in path or path.endswith((".stale", ".tmp")):
+            continue
+        with open(path) as fh:
+            res = json.load(fh)
+        if "stamp" not in res:
+            continue
+        key = os.path.basename(path)[len("pc_sweep_results_"):-len(".json")]
+        rows.append((_label(res["stamp"]), res, os.path.join(HERE, f"pc_decoded_{key}")))
+
+    order = {"pc_guided": 0, "pc_unguided": 1, "flow_guided": 2}
+    rows.sort(key=lambda r: (order.get(r[1]["stamp"].get("arm", ""), 3), r[0]))
+
+    p3 = os.path.join(PHASE3, "fine_lambda_sweep_results_max5.5.json")
+    if os.path.exists(p3):
+        with open(p3) as fh:
+            rows.append(("phase 3 max5.5 (stored)", json.load(fh),
+                         os.path.join(PHASE3, "fine_decoded_max5.5")))
+    return rows
+
+
+def lam_grid(rows: list[tuple[str, dict, str]]) -> list[float]:
+    """Union of every lambda present, snapped to the Phase 3 lattice and sorted."""
+    ks: set[int] = set()
+    for _, res, _ in rows:
+        for k, v in res.items():
+            if k != "stamp":
+                ks.add(int(round(v["lam"] / LAM_STEP)))
+    return [k * LAM_STEP for k in sorted(ks)]
+
+
 THUMB = 184
 LABEL_H = 44
 PAD = 2
@@ -107,11 +166,15 @@ def _hf_frac(r: dict, png: str | None) -> float:
 
 def main() -> None:
     font = _font(12)
+    loaded = discover_rows()
+    if not loaded:
+        print("no results on disk yet -- nothing to render")
+        return
+    LAM_GRID = lam_grid(loaded)
     cell_w = THUMB + 2 * PAD
     cell_h = THUMB + LABEL_H + 2 * PAD
-    grid = Image.new("RGB", (cell_w * len(LAM_GRID), cell_h * len(ROWS)), "white")
+    grid = Image.new("RGB", (cell_w * len(LAM_GRID), cell_h * len(loaded)), "white")
     draw = ImageDraw.Draw(grid)
-    loaded = [(label, _load(base, name), os.path.join(base, ddir)) for label, name, ddir, base in ROWS]
 
     for row_idx, (row_label, res, decoded_dir) in enumerate(loaded):
         for col, lam in enumerate(LAM_GRID):
@@ -156,9 +219,19 @@ def main() -> None:
                                                 r.get("x_norm_final", float("nan"))))
         print(f"{lam:>7.3f} " + " ".join(cells))
 
-    rerun, stored = loaded[2][1], loaded[3][1]
-    if rerun is not None and stored is not None:
-        print("\ncross-check: re-run flow_guided arm vs Phase 3's stored max5.5 at matched lambda")
+    def pick(**want: Any) -> dict | None:
+        """The one results dict whose stamp matches every key=value given (rows are config-keyed)."""
+        for _, res, _ in loaded:
+            st = res.get("stamp", {})
+            if all(st.get(k) == v for k, v in want.items()):
+                return res
+        return None
+
+    # --- cross-check: the re-run Phase 3 arm against Phase 3's own stored numbers -----------------
+    rerun = pick(arm="flow_guided", n_steps_ode=10, sweep_seed=1234)
+    stored = next((res for lab, res, _ in loaded if lab.startswith("phase 3")), None)
+    if rerun and stored:
+        print("\ncross-check: re-run flow_guided @10 vs Phase 3's stored max5.5 at matched lambda")
         print("(same z0, same lambda_s, same L40S -- a mismatch means the reward config or the "
               "reference bank diverged, and NO cross-arm conclusion is valid yet)")
         for lam in LAM_GRID:
@@ -168,6 +241,59 @@ def main() -> None:
             rel = abs(a["f_mean"] - b["f_mean"]) / max(abs(b["f_mean"]), 1e-12)
             print(f"  lam={lam:7.3f}  rerun={a['f_mean']:10.4f}  stored={b['f_mean']:10.4f}  "
                   f"rel={rel:8.2%}  {'OK' if rel < 0.02 else 'MISMATCH'}")
+
+    # --- the decision gate ------------------------------------------------------------------------
+    # Primary readout is x_norm, NOT f: off-manifold failure inflates the latent norm, and f rises
+    # forever under tilt so it cannot be the signal (CLAUDE.md's standing rule). The gate asks whether
+    # a PC arm holds the norm where the COMPUTE-MATCHED control does not -- that is the only comparison
+    # that separates "the corrector works" from "more reward-gradient evaluations work".
+    pcg = pick(arm="pc_guided", corrector_steps=1, eta_reference="total", z0_seed=None, sweep_seed=1234)
+    pcs = pick(arm="pc_guided", corrector_steps=1, eta_reference="score", z0_seed=None, sweep_seed=1234)
+    pcu = pick(arm="pc_unguided", corrector_steps=1, z0_seed=None, sweep_seed=1234)
+    ctrl19 = pick(arm="flow_guided", n_steps_ode=19)
+    if ctrl19:
+        print("\n" + "=" * 100)
+        print("DECISION GATE -- |x|/sqrt(d) vs the COMPUTE-MATCHED control (flow_guided @19 == 19 guided")
+        print("units == pc_guided @10,corr=1). Lower is more on-manifold. 'base' is the lam=0 reference.")
+        print("=" * 100)
+        cand = [("pc_guided eta=total", pcg), ("pc_guided eta=score", pcs), ("pc_unguided", pcu)]
+        print(f"{'lam':>7s} {'ctrl@19':>9s} " + " ".join(f"{n:>21s}" for n, _ in cand))
+        for lam in LAM_GRID:
+            c = _find(ctrl19, lam)
+            if c is None:
+                continue
+            cx = c.get("x_norm_final", float("nan"))
+            cells = []
+            for _, res in cand:
+                r = _find(res, lam) if res else None
+                if r is None:
+                    cells.append("%21s" % "--")
+                    continue
+                x = r.get("x_norm_final", float("nan"))
+                cells.append("%10.3f (%+6.1f%%)" % (x, 100.0 * (x / cx - 1.0) if cx else float("nan")))
+            print(f"{lam:>7.3f} {cx:>9.3f} " + " ".join(cells))
+        print("\nRead it as: a PC arm 'holds' iff its |x| stays near the lam=0 value while ctrl@19 climbs.")
+        print("If ctrl@19 ALSO holds, Phase 3's ceiling was ODE discretization error, not an")
+        print("off-manifold attractor -- in which case the corrector is not the mechanism and the")
+        print("premise of Phase 5 needs rewriting. Confirm against the images before concluding.")
+
+    # --- within-seed (corrector-noise) variance, which sizes the seed replication -----------------
+    fixed = [(lab, res) for lab, res, _ in loaded if res.get("stamp", {}).get("z0_seed") is not None]
+    if len(fixed) >= 2:
+        print("\nwithin-seed spread at FIXED z0 (varies only the Langevin noise -- the variance component")
+        print("Phase 3 structurally does not have; this is what sizes the seed replication):")
+        lams = sorted({v["lam"] for _, res in fixed for k, v in res.items() if k != "stamp"})
+        for lam in lams:
+            vals = [(_find(res, lam) or {}).get("f_mean") for _, res in fixed]
+            xs = [(_find(res, lam) or {}).get("x_norm_final") for _, res in fixed]
+            vals = [v for v in vals if v is not None]
+            xs = [v for v in xs if v is not None]
+            if len(vals) < 2:
+                continue
+            import statistics as st
+            print(f"  lam={lam:7.3f}  n={len(vals)}  f: mean={st.mean(vals):9.4f} sd={st.stdev(vals):8.4f} "
+                  f"cv={st.stdev(vals)/max(abs(st.mean(vals)),1e-12):6.1%}   "
+                  f"|x|: mean={st.mean(xs):6.3f} sd={st.stdev(xs):6.3f}")
 
 
 if __name__ == "__main__":
