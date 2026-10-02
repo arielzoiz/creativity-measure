@@ -51,22 +51,28 @@ fi
 K11=0,2,4,6,8,10,12,14,16,18,20
 : "${STAGGER:=90}"
 
-submit() {                      # submit <job-name> <arm> [flags...]
-    name="$1"; shift
-    sbatch --job-name="$name" pc_sweep.slurm "$@"
+# RIGHT-SIZE --time PER JOB. The slurm header's --time=720 is only a ceiling for the longest arms; a
+# blanket 12 h is actively harmful because Slurm's backfill will not slot long jobs when the queue is
+# busy. Measured the hard way: with --time=720 on all nine and 106 pending vs 88 running on killable, the
+# estimated starts were 02:10 / 02:52 / 03:17 for the first three but 14:06, 14:52, 15:17, 16:53 and
+# NEXT-DAY 12:07 for the rest. Re-submitting the same jobs with --time sized to their actual work fixed
+# it. Budget = ~90 min worst-case setup (NFS-bound, see pc_sweep.slurm) + the sweep estimate, rounded up.
+submit() {                      # submit <minutes> <job-name> <arm> [flags...]
+    mins="$1"; name="$2"; shift 2
+    sbatch --time="$mins" --job-name="$name" pc_sweep.slurm "$@"
     sleep "$STAGGER"
 }
 
-#      job name                arm          flags                                                   est
-submit p5-j1-unguided-c1  pc_unguided --corrector-steps 1 --lam-k $K11                            # 1.6 h
-submit p5-j2-guided-c1    pc_guided   --corrector-steps 1 --lam-k $K11                            # 3.3 h
-submit p5-j3-ctrl-n19     flow_guided --n-steps 19        --lam-k $K11                            # 3.3 h
-submit p5-j4-ctrl-n10-ext flow_guided --n-steps 10        --lam-k 16,18,20                        # 0.5 h
-submit p5-j5-guided-score pc_guided   --corrector-steps 1 --eta-reference score --lam-k $K11      # 3.3 h
-submit p5-j6-guided-c2    pc_guided   --corrector-steps 2 --lam-k 10,14,18                        # 1.3 h
-submit p5-j7a-z0fix-s101  pc_guided   --corrector-steps 1 --z0-seed 1234 --sweep-seed 101 --lam-k 10,14
-submit p5-j7b-z0fix-s202  pc_guided   --corrector-steps 1 --z0-seed 1234 --sweep-seed 202 --lam-k 10,14
-submit p5-j7c-z0fix-s303  pc_guided   --corrector-steps 1 --z0-seed 1234 --sweep-seed 303 --lam-k 10,14
+#     min  job name                arm          flags                                             sweep est
+submit 360 p5-j1-unguided-c1  pc_unguided --corrector-steps 1 --lam-k $K11                       # 1.6 h
+submit 420 p5-j2-guided-c1    pc_guided   --corrector-steps 1 --lam-k $K11                       # 3.3 h
+submit 420 p5-j3-ctrl-n19     flow_guided --n-steps 19        --lam-k $K11                       # 3.3 h
+submit 180 p5-j4-ctrl-n10-ext flow_guided --n-steps 10        --lam-k 16,18,20                   # 0.5 h
+submit 420 p5-j5-guided-score pc_guided   --corrector-steps 1 --eta-reference score --lam-k $K11 # 3.3 h
+submit 240 p5-j6-guided-c2    pc_guided   --corrector-steps 2 --lam-k 10,14,18                   # 1.3 h
+submit 180 p5-j7a-z0fix-s101  pc_guided   --corrector-steps 1 --z0-seed 1234 --sweep-seed 101 --lam-k 10,14
+submit 180 p5-j7b-z0fix-s202  pc_guided   --corrector-steps 1 --z0-seed 1234 --sweep-seed 202 --lam-k 10,14
+submit 180 p5-j7c-z0fix-s303  pc_guided   --corrector-steps 1 --z0-seed 1234 --sweep-seed 303 --lam-k 10,14
 
 echo
 squeue --me -o "%.9i %.24j %.8T %.8M %R"
