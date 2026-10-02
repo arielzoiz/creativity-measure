@@ -12,12 +12,18 @@
 #SBATCH --mem=24000
 #SBATCH --gpus=1
 #
-# Phase 5 (predictor-corrector Langevin, creativity_measure/samplers/flow_guided_pc.py). ONE ARM PER JOB:
+# Phase 5 (predictor-corrector Langevin, creativity_measure/samplers/flow_guided_pc.py). ONE CONFIG PER
+# JOB: first argument is the arm, everything after it is forwarded verbatim to pc_sweep.py, so a wave is
+# just a list of sbatch lines. Results and decoded dirs are keyed on the full config inside pc_sweep.py,
+# so concurrent jobs never collide.
 #
 #   export HF_TOKEN=$(cat $HOME/.hf_token)
-#   sbatch pc_sweep.slurm pc_guided        # predictor_guided=True,  M=2  -- superset of Phase 3
-#   sbatch pc_sweep.slurm pc_unguided      # predictor_guided=False, M=2  -- all tilt from the corrector
-#   sbatch pc_sweep.slurm flow_guided      # corrector_steps=0            -- Phase 3, bitwise
+#   sbatch --job-name=p5-j1 pc_sweep.slurm pc_unguided --corrector-steps 1
+#   sbatch --job-name=p5-j2 pc_sweep.slurm pc_guided   --corrector-steps 1
+#   sbatch --job-name=p5-j3 pc_sweep.slurm flow_guided --n-steps 19          # compute-matched control
+#   sbatch --job-name=p5-j5 pc_sweep.slurm pc_guided --corrector-steps 1 --eta-reference score
+#
+# Override --job-name per job (as above) so the logs are identifiable; the header's name is only a default.
 #
 # WHY THE THIRD ARM IS RE-RUN HERE instead of read out of Phase 3's stored
 # fine_lambda_sweep_results_max5.5.json: CLAUDE.md records that a GPU model change alone shifts f by 16%
@@ -51,14 +57,15 @@ set -e
 
 ARM="$1"
 case "$ARM" in
-    pc_guided|pc_unguided|flow_guided) ;;
+    pc_guided|pc_unguided|flow_guided) shift ;;
     *)
-        echo "FATAL: pass exactly one arm as the first argument." >&2
-        echo "  sbatch pc_sweep.slurm {pc_guided|pc_unguided|flow_guided}" >&2
+        echo "FATAL: first argument must be the arm; the rest are forwarded to pc_sweep.py." >&2
+        echo "  sbatch pc_sweep.slurm {pc_guided|pc_unguided|flow_guided} [pc_sweep.py flags...]" >&2
         echo "  (got: '${ARM}')" >&2
         exit 1
         ;;
 esac
+EXTRA="$@"
 
 WORK=/home/dcor/arielzoizner
 REPO=$WORK/projects/creativity-measure
@@ -75,7 +82,7 @@ export TRITON_CACHE_DIR="$WORK/.cache/triton"
 mkdir -p "$WORK/logs" "$MPLCONFIGDIR" "$TRITON_CACHE_DIR"
 cd "$SWEEP_DIR"
 
-echo "=== $(date) on $(hostname) -- arm=$ARM ==="
+echo "=== $(date) on $(hostname) -- arm=$ARM extra='$EXTRA' ==="
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1
 echo "repo commit: $(git -C "$REPO" rev-parse --short HEAD) ($(git -C "$REPO" log -1 --format=%s))"
 git -C "$REPO" status --short | head -5
@@ -87,8 +94,8 @@ if [ -z "$HF_TOKEN" ]; then
 fi
 echo "HF credential: HF_TOKEN present in the environment"
 
-echo "=== running pc_sweep.py --arm $ARM ==="
-"$PY" -u pc_sweep.py --arm "$ARM"
+echo "=== running pc_sweep.py --arm $ARM $EXTRA ==="
+"$PY" -u pc_sweep.py --arm "$ARM" "$@"
 
 echo "=== done $(date) ==="
-ls -l "$SWEEP_DIR"/pc_sweep_results_"$ARM".json "$SWEEP_DIR"/pc_decoded_"$ARM"/*.png 2>/dev/null | tail -20
+ls -lt "$SWEEP_DIR"/pc_sweep_results_"$ARM"*.json 2>/dev/null | head -5
