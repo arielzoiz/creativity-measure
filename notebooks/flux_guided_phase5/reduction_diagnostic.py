@@ -149,10 +149,18 @@ def main() -> None:
         print(f"VERDICT: AMBIGUOUS. self max_abs {se:.4e} vs cross {ce:.4e} differ by more than 10x;")
         print("nondeterminism is present but may not account for the whole cross-sampler gap.")
     print("-" * 100)
-    fse = out["self_fg_exact"]
-    print(f"NOISE FLOOR FOR THE WHOLE PHASE: re-running flow_guided_sample at a FIXED seed moves")
-    print(f"  f  by {fse['f_abs_diff']:.4f} ({fse['f_rel_diff']:.2%})")
-    print(f"  |x|/sqrt(d) by {abs(fse['x_norm_a'] - fse['x_norm_b']):.4f}")
+    # Pool every nondeterministic draw rather than quote one pair's |delta|: with n=2 the spread of
+    # |delta| is itself enormous, which is why self (1.67%) and cross (5.76%) looked so different in the
+    # first run of this script even though all four f values come from one distribution.
+    import statistics as st
+    draws = [out[k][f] for k in ("self_fg_exact", "cross_exact") for f in ("f_a", "f_b")]
+    xs = [out[k][f] for k in ("self_fg_exact", "cross_exact") for f in ("x_norm_a", "x_norm_b")]
+    print("NOISE FLOOR FOR THE WHOLE PHASE -- pooled over the", len(draws),
+          "nondeterministic draws at lam=1, exact_jacobian=True:")
+    print(f"  f           mean={st.mean(draws):.4f} sd={st.stdev(draws):.4f} "
+          f"CV={st.stdev(draws) / abs(st.mean(draws)):.2%}   draws={[round(v, 4) for v in draws]}")
+    print(f"  |x|/sqrt(d) mean={st.mean(xs):.4f} sd={st.stdev(xs):.4f} "
+          f"CV={st.stdev(xs) / abs(st.mean(xs)):.2%}")
     print("Any arm-to-arm difference smaller than this is indistinguishable from the backend, and every")
     print("arm -- flow_guided included -- then needs repeats rather than a single run per lambda.")
     print("=" * 100)

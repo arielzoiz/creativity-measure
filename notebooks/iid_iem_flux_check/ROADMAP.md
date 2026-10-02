@@ -316,7 +316,52 @@ $\lambda = 0$ *and* $\lambda \neq 0$ in both Jacobian modes, and re-asserted on 
 makes the three-arm comparison apples-to-apples. The extraction is arithmetic-preserving; `test_flow_guided.py`'s own $\lambda = 0$ bitwise test is
 the regression guard and all 17 of its tests still pass unchanged.
 
-### The sweep (not yet submitted)
+### GPU reality check: the backend is not bit-reproducible (job 966117)
+
+The first wave-1 launch (jobs 965866–965874) was **aborted by its own preflight**: `corrector_steps=0` was not
+bitwise equal to `flow_guided_sample` on real FLUX at $\lambda = 1$, `exact_jacobian=True` (max abs diff 11.74),
+although `tests/test_flow_guided_pc.py` asserts exactly that, bitwise, on CPU in both Jacobian modes. All nine
+jobs would have failed identically, so they were cancelled before any wrote results — nothing was contaminated.
+
+**The assert was wrong, not the sampler**, and the diagnosis separated two claims that bitwise-output equality
+conflates: (i) the two samplers ask the model the *same question*, which is ours; (ii) the model answers the same
+question identically twice, which is the backend's. Claim (i) was proven directly on CPU by tracing
+`(t, shape, input-hash, requires_grad)` per call — the sequences are identical at $\lambda \in \{0, 1, 3\}$ in both
+Jacobian modes, now a permanent, backend-independent test. Claim (ii) is false on GPU, measured by
+`reduction_diagnostic.py`:
+
+| case | bitwise | latent `rel` | $\lvert\Delta f\rvert$ |
+|---|---|---|---|
+| `flow_guided` vs **ITSELF**, $\lambda = 1$, exact | no | **0.503** | 1.67% |
+| `flow_guided` vs **ITSELF**, $\lambda = 1$, approx | no | 0.192 | **0.07%** |
+| `flow_guided` vs **ITSELF**, $\lambda = 0$ | **yes** | 0 | 0 |
+| `flow_guided` vs `pc(corr=0)`, $\lambda = 0$ | **yes** | 0 | 0 |
+| `flow_guided` vs `pc(corr=0)`, $\lambda = 1$, approx | no | 0.155 | 0.22% |
+| `flow_guided` vs `pc(corr=0)`, $\lambda = 1$, exact | no | 0.399 | 5.76% |
+
+The decisive line is the first: **the model disagrees with itself (0.503) more than the two samplers disagree with
+each other (0.399)**, so the cross-sampler gap cannot be a difference between code paths. Cause: flash attention's
+backward uses atomics, and `_freeze`'s gradient checkpointing makes the backward recompute the forward.
+Full detail, including why the exact path is $\approx 24\times$ noisier in $f$ than the approximate one and how this
+re-explains job 957386's "exact has far higher variance" observation, is in CLAUDE.md's Established Findings.
+
+Pooling all four nondeterministic draws: $f$ **CV $= 2.52\%$** (sd 0.0742 on mean 2.9490) — quote the pooled CV,
+never a single pair's $\lvert\Delta\rvert$, whose spread at $n = 2$ is what made self (1.67%) and cross (5.76%) look
+different. That floor is 6–10$\times$ below Phase 3's 14–27% seed-to-seed CV, so **single runs per $\lambda$ remain
+interpretable** and no repeats-per-arm redesign is needed.
+
+`preflight` was corrected accordingly: bitwise at $\lambda = 0$ only, and at $\lambda \neq 0$ the cross-sampler
+deviation is *recorded* against the backend's own self-deviation floor. A zero floor with a nonzero cross deviation
+still raises — that would be a real defect.
+
+**Infrastructure measured in passing** (all folded into `pc_sweep.slurm` / `submit_wave1.sh`): setup is
+**NFS-bound, not GPU-bound** — the 32 GB of mmap'd safetensors page in at **~5 MB/s** (process in state `Dl` on
+`folio_wait_bit_common`, `read_bytes` climbing 50 MB/10 s), making setup 35–90 min; `killable` allows **24 h**, so
+Phase 3's self-imposed `--time=360` was raised to 720 because every requeue re-pays that setup; and
+**co-locating jobs hurts** — the five that landed on n-801 were still loading when the two placed alone elsewhere
+had finished setup, so submissions are now staggered.
+
+### The sweep
 
 `notebooks/flux_guided_phase5/pc_sweep.py` + `pc_sweep.slurm`, one job per arm, with setup *imported* from Phase 3's `fine_lambda_sweep.py` so
 $\lambda_{s}$, the reference latents and the whole reward config are bit-identical to that run:
