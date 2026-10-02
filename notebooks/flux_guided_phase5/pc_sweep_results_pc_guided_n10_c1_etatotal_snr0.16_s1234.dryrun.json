@@ -1,0 +1,88 @@
+{
+  "stamp": {
+    "dry_run": true,
+    "d": 256,
+    "S_scale": 1.1427583694458008,
+    "gamma_lo": 0.7657573580965229,
+    "gamma_hi": 1024.0,
+    "f_probe_mean": 0.9892338514328003,
+    "f_std_p": 0.03828131780028343,
+    "arm": "pc_guided",
+    "n_particles": 1,
+    "n_steps_ode": 10,
+    "lambda_s": 26.12240271395767,
+    "lam_k": [
+      0,
+      10
+    ],
+    "lam_grid": [
+      0.0,
+      3.9285714285714284
+    ],
+    "sweep_seed": 1234,
+    "z0_seed": null,
+    "corrector_steps": 1,
+    "snr": 0.16,
+    "eta_reference": "total",
+    "exact_jacobian": true,
+    "preflight": {
+      "f_refs": 0.984375,
+      "lam_s": 26.12240271395767,
+      "score_xval_rel": {
+        "t0.9": 7.91650123233012e-08,
+        "t0.5": 2.1743350231417935e-08,
+        "t0.1": 5.662461148858711e-07,
+        "t0.02": 1.6554628246012726e-06
+      },
+      "reduction_bitwise_lam0": true,
+      "nondet_floor_lam1": 0.0,
+      "reduction_cross_lam1": 0.0
+    }
+  },
+  "idx00_lam0.0000": {
+    "arm": "pc_guided",
+    "idx": 0,
+    "lam": 0.0,
+    "m": 0.0,
+    "f_mean": 0.9885615110397339,
+    "f_std": NaN,
+    "applied_norm_mean": 0.0,
+    "v_norm_mean": 9.062725830078126,
+    "corrector_nodes": 9,
+    "corrector_eta_mean": 0.031241442361432645,
+    "corrector_rel_disp_mean": 0.2539510279893875,
+    "corrector_score_norm_mean": 26.641189681159126,
+    "corrector_drift_norm_mean": 26.641189681159126,
+    "corrector_noise_frac_mean": 6.25,
+    "x_norm_final": 1.1072543859481812,
+    "hf_frac": NaN,
+    "n_velocity_evals": 19,
+    "n_reward_grads": 0,
+    "oom_fallback_any": false,
+    "t_sample_s": 0.2006845474243164,
+    "png": null
+  },
+  "idx01_lam3.9286": {
+    "arm": "pc_guided",
+    "idx": 1,
+    "lam": 3.9285714285714284,
+    "m": 0.15039089135825634,
+    "f_mean": 6.376491069793701,
+    "f_std": NaN,
+    "applied_norm_mean": 36.941828918457034,
+    "v_norm_mean": 9.403374576568604,
+    "corrector_nodes": 9,
+    "corrector_eta_mean": 0.001887436785586437,
+    "corrector_rel_disp_mean": 0.04229131209043165,
+    "corrector_score_norm_mean": 54.22556961907281,
+    "corrector_drift_norm_mean": 160.4103601243761,
+    "corrector_noise_frac_mean": 6.250000370873345,
+    "x_norm_final": 3.3973119258880615,
+    "hf_frac": NaN,
+    "n_velocity_evals": 19,
+    "n_reward_grads": 19,
+    "oom_fallback_any": false,
+    "t_sample_s": 13.464056253433228,
+    "png": null
+  }
+}

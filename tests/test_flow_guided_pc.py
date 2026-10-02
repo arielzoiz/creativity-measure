@@ -16,6 +16,7 @@ CPU-only. Three kinds of coverage, deliberately separated:
 Whether the corrector actually extends the creative window on real FLUX is the GPU question
 (notebooks/flux_guided_phase5/), not this file's.
 """
+import hashlib
 import math
 from typing import Any
 
@@ -389,6 +390,53 @@ def test_corrector_steps_zero_reproduces_flow_guided_bitwise(lam: float, exact_j
     assert pc.applied_norm_history == ref.applied_norm_history
     assert all(not s.ran for s in pc.corrector_history)
     assert len(pc.corrector_history) == 3
+
+
+@pytest.mark.parametrize("lam", [0.0, 1.0, 3.0])
+@pytest.mark.parametrize("exact_jacobian", [False, True])
+def test_corrector_steps_zero_requests_an_identical_CALL_SEQUENCE(lam: float, exact_jacobian: bool):
+    """Stronger than the bitwise-output test above, and for a reason GPU hardware taught us.
+
+    Jobs 965868/965869 died because `corrector_steps=0` was NOT bitwise equal to flow_guided_sample on
+    real FLUX at lam!=0 with exact_jacobian=True (max abs diff 1.17e+01), while the bitwise test passes
+    on CPU. Bitwise-output equality conflates two very different claims: "the samplers ask the model the
+    same question" and "the model returns the same answer twice". Only the first is a property of this
+    code; the second is a property of the backend, and FLUX's backward on GPU does not have it (flash
+    attention's atomics plus gradient-checkpoint recompute).
+
+    So this test asserts the part that IS ours: a traced velocity_fn records (t, shape, content hash of
+    the input, requires_grad) for every call, and the two samplers must produce identical trace lists.
+    That holds regardless of whether the backend is deterministic, which makes it the regression test
+    that would actually have localized the GPU failure instead of merely detecting it.
+    """
+    torch.manual_seed(0)
+    d = 32
+    module = torch.nn.Linear(d, d).eval()
+    module.requires_grad_(False)
+
+    def _traced(trace: list[tuple[Any, ...]]):
+        def velocity(x_t: torch.Tensor, t: float) -> torch.Tensor:
+            trace.append((round(t, 10), tuple(x_t.shape),
+                          hashlib.sha1(x_t.detach().numpy().tobytes()).hexdigest(),
+                          bool(x_t.requires_grad)))
+            return module(x_t)
+        velocity.module = module      # type: ignore[attr-defined]  # needed by exact_jacobian=True
+        return velocity
+
+    reward = Reward(distance=_NegL2Distance(), x_refs=torch.full((2, d), 2.0))
+    kw: dict[str, Any] = dict(n_steps=4, shift=3.0, exact_jacobian=exact_jacobian, seed=5)
+    trace_fg: list[tuple[Any, ...]] = []
+    trace_pc: list[tuple[Any, ...]] = []
+
+    x_fg = flow_guided_sample(reward, lam, 2, velocity_fn=_traced(trace_fg), **kw).X
+    x_pc = flow_guided_pc_sample(reward, lam, 2, corrector_steps=0,
+                                 velocity_fn=_traced(trace_pc), **kw).X
+
+    assert trace_fg, "traced velocity_fn was never called"
+    assert trace_fg == trace_pc, (
+        "the two samplers requested DIFFERENT computations; first divergence at call "
+        f"{next(i for i, (a, b) in enumerate(zip(trace_fg, trace_pc)) if a != b)}")
+    assert torch.equal(x_fg, x_pc)      # on CPU the backend is deterministic too, so this holds as well
 
 
 def test_predictor_unguided_reproduces_the_plain_ode_bitwise():
