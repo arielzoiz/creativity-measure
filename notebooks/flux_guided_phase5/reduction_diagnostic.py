@@ -64,13 +64,27 @@ def _run(S: Setup, which: str, lam: float, exact: bool, seed: int) -> torch.Tens
     return flow_guided_pc_sample(S.reward, lam, N_PARTICLES, corrector_steps=0, **kw).X
 
 
-def _cmp(a: torch.Tensor, b: torch.Tensor) -> dict[str, Any]:
+def _cmp(S: Setup, a: torch.Tensor, b: torch.Tensor) -> dict[str, Any]:
+    """Latent-space deviation AND the deviation in f, which is what every readout is made of.
+
+    The latent numbers say whether the trajectories diverged; only the f numbers say whether it matters.
+    If re-running the SAME function at the SAME seed moves f by a sizeable fraction of the arm-to-arm
+    effect being measured, then no single-run comparison in this phase means anything and every arm
+    needs repeats -- so this is the number that decides the wave's design, not just the assert.
+    """
     d = (a.float() - b.float()).abs()
+    with torch.no_grad():
+        fa, fb = float(S.reward(a).mean()), float(S.reward(b).mean())
     return {
         "bitwise": bool(torch.equal(a, b)),
         "max_abs": float(d.max()),
         "mean_abs": float(d.mean()),
         "rel": float(d.norm() / a.float().norm().clamp_min(1e-30)),
+        "f_a": fa, "f_b": fb,
+        "f_abs_diff": abs(fa - fb),
+        "f_rel_diff": abs(fa - fb) / max(abs(fa), 1e-30),
+        "x_norm_a": float(a.float().norm(dim=1).mean()) / (float(S.d) ** 0.5),
+        "x_norm_b": float(b.float().norm(dim=1).mean()) / (float(S.d) ** 0.5),
     }
 
 
@@ -108,12 +122,14 @@ def main() -> None:
             a, b = _run(S, "fg", 1.0, False, 7), _run(S, "pc", 1.0, False, 7)
         else:
             a, b = _run(S, "fg", 1.0, True, 7), _run(S, "pc", 1.0, True, 7)
-        r = _cmp(a, b)
+        r = _cmp(S, a, b)
         r["desc"] = desc
         r["elapsed_s"] = time.time() - t0
         out[label] = r
-        note(f"{label:16s} bitwise={str(r['bitwise']):5s} max_abs={r['max_abs']:.4e} "
-             f"rel={r['rel']:.4e}  ({r['elapsed_s']:.0f}s)  -- {desc}")
+        note(f"{label:16s} bitwise={str(r['bitwise']):5s} max_abs={r['max_abs']:.3e} "
+             f"rel={r['rel']:.3e} | f: {r['f_a']:.4f} vs {r['f_b']:.4f} "
+             f"(d={r['f_abs_diff']:.4f}, {r['f_rel_diff']:.2%}) | "
+             f"|x|: {r['x_norm_a']:.3f} vs {r['x_norm_b']:.3f}  ({r['elapsed_s']:.0f}s) -- {desc}")
         with open(OUT, "w") as fh:
             json.dump(out, fh, indent=2)
 
@@ -132,6 +148,13 @@ def main() -> None:
     else:
         print(f"VERDICT: AMBIGUOUS. self max_abs {se:.4e} vs cross {ce:.4e} differ by more than 10x;")
         print("nondeterminism is present but may not account for the whole cross-sampler gap.")
+    print("-" * 100)
+    fse = out["self_fg_exact"]
+    print(f"NOISE FLOOR FOR THE WHOLE PHASE: re-running flow_guided_sample at a FIXED seed moves")
+    print(f"  f  by {fse['f_abs_diff']:.4f} ({fse['f_rel_diff']:.2%})")
+    print(f"  |x|/sqrt(d) by {abs(fse['x_norm_a'] - fse['x_norm_b']):.4f}")
+    print("Any arm-to-arm difference smaller than this is indistinguishable from the backend, and every")
+    print("arm -- flow_guided included -- then needs repeats rather than a single run per lambda.")
     print("=" * 100)
     print(f"wrote {OUT}")
 
