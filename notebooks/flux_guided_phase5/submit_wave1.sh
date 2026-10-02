@@ -1,8 +1,9 @@
 #!/bin/sh
-# Phase 5, wave 1 -- one seed (1234), nine jobs, all concurrent. Records the experiment rather than
-# leaving it in shell history.
+# Phase 5, wave 1 -- one seed (1234), nine jobs. Records the experiment rather than leaving it in shell
+# history.
 #
 #   export HF_TOKEN=$(cat $HOME/.hf_token) && sh submit_wave1.sh
+#   STAGGER=0 sh submit_wave1.sh            # submit all at once (not recommended, see below)
 #
 # Lambda grid is every other point of Phase 3's zoom lattice, k = 0,2,...,20 -> lam = 0 .. 7.857.
 # Points at k <= 14 pair one-to-one with an existing fine_decoded_max5.5 image; k = 16,18,20 extend PAST
@@ -29,6 +30,13 @@
 # J7a/b/c share one z0 (Phase 3's, seed 1234) and vary ONLY the Langevin noise, which measures PC's
 # within-seed variance -- the component Phase 3 structurally does not have, and what sizes wave 2.
 #
+# WHY SUBMISSIONS ARE STAGGERED: wave 1's first attempt put 5 jobs on n-801, and those 5 were still
+# loading when the two that landed alone on other nodes had already finished setup. Co-location HURT --
+# they contend for the node's NFS client bandwidth rather than usefully sharing page cache. The model is
+# 32 GB of mmap'd safetensors on $WORK and job 966117 was measured page-faulting it in at ~5 MB/s, so
+# read bandwidth, not GPU, is the setup bottleneck. Spacing submissions lets Slurm place them as nodes
+# free up instead of packing one.
+#
 # Results and decoded dirs are keyed on the full config inside pc_sweep.py, so these never collide and
 # each is independently resumable per lambda.
 
@@ -41,17 +49,24 @@ if [ -z "$HF_TOKEN" ]; then
 fi
 
 K11=0,2,4,6,8,10,12,14,16,18,20
+: "${STAGGER:=90}"
 
-# arm            label                  flags                                                  est
-sbatch --job-name=p5-j1-unguided-c1  pc_sweep.slurm pc_unguided --corrector-steps 1 --lam-k $K11                            # 1.6 h
-sbatch --job-name=p5-j2-guided-c1    pc_sweep.slurm pc_guided   --corrector-steps 1 --lam-k $K11                            # 3.3 h
-sbatch --job-name=p5-j3-ctrl-n19     pc_sweep.slurm flow_guided --n-steps 19        --lam-k $K11                            # 3.3 h
-sbatch --job-name=p5-j4-ctrl-n10-ext pc_sweep.slurm flow_guided --n-steps 10        --lam-k 16,18,20                        # 0.5 h
-sbatch --job-name=p5-j5-guided-score pc_sweep.slurm pc_guided --corrector-steps 1 --eta-reference score --lam-k $K11        # 3.3 h
-sbatch --job-name=p5-j6-guided-c2    pc_sweep.slurm pc_guided --corrector-steps 2 --lam-k 10,14,18                          # 1.3 h
-sbatch --job-name=p5-j7a-z0fix-s101  pc_sweep.slurm pc_guided --corrector-steps 1 --z0-seed 1234 --sweep-seed 101 --lam-k 10,14
-sbatch --job-name=p5-j7b-z0fix-s202  pc_sweep.slurm pc_guided --corrector-steps 1 --z0-seed 1234 --sweep-seed 202 --lam-k 10,14
-sbatch --job-name=p5-j7c-z0fix-s303  pc_sweep.slurm pc_guided --corrector-steps 1 --z0-seed 1234 --sweep-seed 303 --lam-k 10,14
+submit() {                      # submit <job-name> <arm> [flags...]
+    name="$1"; shift
+    sbatch --job-name="$name" pc_sweep.slurm "$@"
+    sleep "$STAGGER"
+}
+
+#      job name                arm          flags                                                   est
+submit p5-j1-unguided-c1  pc_unguided --corrector-steps 1 --lam-k $K11                            # 1.6 h
+submit p5-j2-guided-c1    pc_guided   --corrector-steps 1 --lam-k $K11                            # 3.3 h
+submit p5-j3-ctrl-n19     flow_guided --n-steps 19        --lam-k $K11                            # 3.3 h
+submit p5-j4-ctrl-n10-ext flow_guided --n-steps 10        --lam-k 16,18,20                        # 0.5 h
+submit p5-j5-guided-score pc_guided   --corrector-steps 1 --eta-reference score --lam-k $K11      # 3.3 h
+submit p5-j6-guided-c2    pc_guided   --corrector-steps 2 --lam-k 10,14,18                        # 1.3 h
+submit p5-j7a-z0fix-s101  pc_guided   --corrector-steps 1 --z0-seed 1234 --sweep-seed 101 --lam-k 10,14
+submit p5-j7b-z0fix-s202  pc_guided   --corrector-steps 1 --z0-seed 1234 --sweep-seed 202 --lam-k 10,14
+submit p5-j7c-z0fix-s303  pc_guided   --corrector-steps 1 --z0-seed 1234 --sweep-seed 303 --lam-k 10,14
 
 echo
 squeue --me -o "%.9i %.24j %.8T %.8M %R"

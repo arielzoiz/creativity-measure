@@ -5,7 +5,7 @@
 #SBATCH --partition=killable
 #SBATCH --account=gpu-research
 #SBATCH --constraint=l40s
-#SBATCH --time=360
+#SBATCH --time=720
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
@@ -28,9 +28,12 @@
 # WHY THE THIRD ARM IS RE-RUN HERE instead of read out of Phase 3's stored
 # fine_lambda_sweep_results_max5.5.json: CLAUDE.md records that a GPU model change alone shifts f by 16%
 # of std_p(f) (job 697271) -- the same order as the effect being measured. All three arms must therefore
-# share one GPU model, one reward and one reference bank. Each job also asserts on the actual hardware,
-# before any sweep point, that corrector_steps=0 is BITWISE equal to flow_guided_sample; if that fails the
-# job raises and no number from it should be interpreted.
+# share one GPU model, one reward and one reference bank. Each job also checks on the actual hardware,
+# before any sweep point, that corrector_steps=0 reduces to flow_guided_sample -- bitwise at lam=0, where
+# no backward is taken, and against the backend's own self-reproducibility floor at lam!=0, because FLUX's
+# backward is NOT bit-reproducible on GPU (that cost jobs 965868/965869 before the check was corrected;
+# the backend-independent claim is asserted in CI instead, by test_flow_guided_pc.py's call-sequence
+# test). A failure raises and no number from the job should be interpreted.
 #
 # --constraint=l40s, pinned to ONE model (never a6000|l40s) for the reason above. Phase 3's
 # fine_lambda_sweep_results_max5.5.json stamp records 'NVIDIA L40S', so this also keeps the arms
@@ -42,7 +45,14 @@
 # with 2 free A6000s but 11.8 GB free RAM). note() stamps ru_maxrss on every progress line, so a real
 # overshoot will be visible in this job's own log; never set --mem equal to an observed peak.
 #
-# --time=360: per-arm estimates, scaled from Phase 3's MEASURED 571 s per guided lambda
+# --time=720, NOT Phase 3's 360. `killable` allows 1-00:00:00 (24 h); 360 was a self-imposed choice
+# there, and it is the wrong one here because SETUP has been measured at 35-90 min on this path -- the
+# 32 GB of safetensors are mmap'd off $WORK and job 966117 was observed page-faulting them in at ~5 MB/s
+# (process in state Dl on folio_wait_bit_common, read_bytes climbing 50 MB per 10 s). With a setup that
+# expensive, resumption is expensive: every requeue re-pays it. Buying wall clock is strictly cheaper
+# than splitting the lambda grid across more jobs, which would re-pay setup per split.
+#
+# Per-arm sweep estimates, scaled from Phase 3's MEASURED 571 s per guided lambda
 # (exact_jacobian=True, N_PARTICLES=1, N_STEPS_ODE=10, L40S) by the per-ODE-step cost ratios the --dry-run
 # measured (1.0 / 1.8 / 2.8 for flow_guided / pc_unguided / pc_guided at M=2):
 #   pc_guided    ~1600 s/lambda x 8 = 3.6 h   (+ ~10 min ref bank + model load + 2 min reduction check)
