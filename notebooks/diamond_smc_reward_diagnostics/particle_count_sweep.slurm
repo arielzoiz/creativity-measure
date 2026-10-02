@@ -1,5 +1,5 @@
 #!/bin/sh
-#SBATCH --job-name=dmsmc-Msweep
+#SBATCH --job-name=dmsmc-countsweep
 #SBATCH --output=/home/dcor/arielzoizner/logs/%x-%j.out
 #SBATCH --error=/home/dcor/arielzoizner/logs/%x-%j.err
 #SBATCH --partition=killable
@@ -13,7 +13,7 @@
 #SBATCH --mem=64000
 #SBATCH --gpus=1
 #
-# Particle-count sweep at a fixed, already-degenerate lambda -- see M_sweep.py's docstring. One
+# Particle-count sweep at a fixed, already-degenerate lambda -- see particle_count_sweep.py's docstring. One
 # backend build, then 4 SMC runs reusing it (M=16,32,64,128 at K=4), each batch up to M*K=512
 # lookahead candidates through SiT-XL/2 -- comfortably under the >=40GB preflight floor but the
 # largest single batch run in this project directory so far, hence the same generous --mem as the
@@ -47,6 +47,6 @@ cd "$RUN_DIR"
 echo "=== $(date) on $(hostname) ==="
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1
 
-"$PY" M_sweep.py
+"$PY" particle_count_sweep.py
 
 echo "=== done $(date) ==="
