@@ -13,8 +13,8 @@ its own module (like `smc_common.py`) or a subclass in a new file. Per-stage res
 | 1 | i.i.d. Monte-Carlo reward (`SquaredIIDGlobalIEMDistance`) | **DONE — GPU-verified (job 956556): G0 PASS; G1 all 3 configs tie the Brownian yardstick within noise. Picked G=50,N_eps=1.** |
 | 2 | Autograd + memory stress test on FLUX | **DONE — GPU-verified (job 957385): single backward through the full transformer works (needed gradient checkpointing, see below); double-backward hits a real hardware ceiling at full scale (expected, unused by production); OOM-fallback exactness confirmed (max diff 2.46e-4).** |
 | 3 | Direct test-time guidance | **DONE — GPU-verified end to end (job 957386): f rises monotonically with lambda in both Jacobian modes on real FLUX.1-dev, lam=0 bitwise parity holds on real hardware too.** |
-| 4 | Standalone Langevin (ULA) MCMC | NOT STARTED |
-| 5 | Predictor-corrector (Langevin) sampler | NOT STARTED |
+| 4 | Standalone Langevin (ULA) MCMC | **SKIPPED (2026-10-02)** — standalone ULA at $t=1$ is structurally uninformative; its mechanism is subsumed by Phase 5's corrector, which runs the same ULA drift at every $t$ with the base process still supplying structure. |
+| 5 | Predictor-corrector (Langevin) sampler | **IMPLEMENTED, CPU-verified (55 tests, `tests/test_flow_guided_pc.py`); GPU sweep NOT YET SUBMITTED.** `creativity_measure/samplers/flow_guided_pc.py`, driver `notebooks/flux_guided_phase5/`. |
 | 6 | Generation quality vs compute cost | NOT STARTED |
 
 ## Phase 1 — DONE locally, verification PENDING on the cluster
@@ -214,14 +214,140 @@ $\lambda$ for both Jacobian modes (e.g. $\lambda=2$: $+1.65$ approximate, $+1.87
 **Pending:** `SquaredIIDGlobalIEMDistance.expected_gamma_chunk` (unblocks the OOM-fallback exactness tests),
 then the real-FLUX GPU run. Same `HF_TOKEN`-in-environment credential note as Phase 2.
 
-## Phase 4 — Standalone Langevin dynamics, MCMC upgrade (not implemented)
+## Phase 4 — Standalone Langevin dynamics, MCMC upgrade (SKIPPED 2026-10-02)
 
-If direct guidance fails, or to sample the base latent space without the full reverse process: replace the SMC pCN kernel with
+The original plan: if direct guidance fails, or to sample the base latent space without the full reverse process, replace the SMC pCN kernel with
 the Unadjusted Langevin Algorithm,
 $x \leftarrow x + \eta\,(\nabla_x \log p(x) + \lambda \nabla_x r(x)) + \sqrt{2\eta}\,z$.
 Question: does gradient-based MCMC reach high-reward states faster than SMC?
 
-## Phase 5 — Predictor-corrector (Langevin) sampler (not implemented)
+**Skipped deliberately, not deferred.** Phase 3 did *not* fail — it found a real creative window (see Established Findings in CLAUDE.md), so the
+"if direct guidance fails" premise did not fire. And the standalone form is the uninformative special case: run at $t = 1$ it samples a tilted
+*prior*, with no base process supplying structure at any point, which is exactly the regime where $\nabla \log p$ is least informative. Everything
+the phase was meant to test — whether the ULA drift $\nabla \log p_t + \lambda \nabla r$ reaches high-reward states, and at what step size — is
+tested inside Phase 5's corrector, which runs that same drift at every $t$ *with* the generative trajectory intact. Phase 5 at
+`predictor_guided=False` is the nearest thing to a standalone-Langevin arm and it is one of the three arms being swept.
+
+## Phase 5 — Predictor-corrector (Langevin) sampler
+
+**IMPLEMENTED and CPU-verified** (`creativity_measure/samplers/flow_guided_pc.py`, `flow_guided_pc_sample`;
+55 tests in `tests/test_flow_guided_pc.py`). **The GPU sweep has not been submitted.**
+
+### Why
+
+Phase 3 ceilings. The fine $\lambda$-scan (jobs 958150/958630) found the creative-but-recognizable window at $\lambda \in [0.4, 3.54]$, and past
+$\lambda \approx 3.93$ the guided ODE locks onto a fixed off-manifold attractor: $f$ runs away ($143.97$ at $\lambda = 3.93 \to 271.24$ at
+$\lambda = 5.5$) on visually destroyed images. A single deterministic Euler pass has no mechanism to **re-equilibrate** onto the model's own marginal
+after each nudge, so every step's off-manifold error compounds. The corrector is that mechanism: after each ODE step arrives at $t$, run `corrector_steps` steps of
+ULA at that *fixed* noise level targeting
+
+$$q_{t}(x) \propto p_{t}(x) \exp(\lambda r(\hat{x}_{0}(x_{t}))),$$
+
+whose drift contains the model's own marginal score, so the score term pulls back onto $p_{t}$ while the reward term pushes up $r$.
+
+### The math
+
+Interpolant $x_{t} = (1-t) x_{0} + t \varepsilon$, so $v = \varepsilon - x_{0}$ and $x_{t} = x_{0} + t v$.
+
+1. **Denoised target (exact).** $\hat{x}_{0} = x_{t} - t v_{\theta}(x_{t}, t)$ — the same expression `flux_edm_denoiser` and `guided_euler_step` already use.
+2. **Velocity $\to$ score (exact, not an approximation).** $\hat\varepsilon = E[\varepsilon \mid x_{t}] = x_{t} + (1-t) v_{\theta}$ and
+   $p(x_{t} \mid x_{0}) = N((1-t) x_{0}, t^{2} I)$, hence
+   $$s_{\theta}(x_{t}, t) = -\frac{x_{t} + (1-t) v_{\theta}(x_{t}, t)}{t}.$$
+   Two closed forms pin it in the tests: at $t = 1$ it collapses to $-x_{t}$ for *any* $v$, and for Gaussian data $N(0, \sigma_{d}^{2} I)$ under the
+   optimal $v$ it reduces to $-x_{t}/D$ with $D = (1-t)^{2}\sigma_{d}^{2} + t^{2}$ — the true marginal score.
+3. **The identity-Jacobian approximation — the one heavy assumption.** $r$ cannot be meaningfully evaluated on a noisy $x_{t}$, so it is evaluated on
+   $\hat{x}_{0}$ and the gradient transported back as
+   $$\nabla_{x_{t}} r(x_{t}) \approx \nabla_{\hat{x}_{0}} r(\hat{x}_{0}), \qquad \text{i.e. } \frac{d\hat{x}_{0}}{dx_{t}} \text{ treated as } I.$$
+   The true Jacobian is $I - t\, dv_{\theta}/dx_{t}$, a full $d \times d$ operator of the network's own sensitivity, replaced by the identity; worst
+   where $t$ is large and the transformer most nonlinear. It is the same approximation Phase 3's default path makes, and `exact_jacobian=True` drops
+   it in both the predictor and the corrector. Documented at length in the module and function docstrings, per the implementation request.
+4. **Normalization and total drift.**
+   $$\tilde{g}_{t} = \frac{\nabla_{\hat{x}_{0}} r}{\lVert \nabla_{\hat{x}_{0}} r \rVert_{2} + \epsilon_{0}} \lVert s_{\theta}(x_{t}, t) \rVert_{2},
+   \qquad g_{\text{total}} = s_{\theta}(x_{t}, t) + \lambda \tilde{g}_{t}.$$
+   The reward gradient's magnitude is discarded, so $\lambda$ is a dimensionless mixing weight: $\lambda = 1$ puts the drift at 45° between
+   "stay on the manifold" and "ascend $r$".
+5. **Dynamic SNR step size** (`snr = 0.16` default — Song et al. 2021, *Score-Based Generative Modeling through SDEs*, arXiv:2011.13456, App. G, and the
+   `score_sde` `LangevinCorrector` default). `eta_reference="total"` (default):
+   $$\eta_{t} = 2\left(\frac{\text{snr} \lVert z \rVert_{2}}{\lVert s_{\theta}(x_{t}, t) + \lambda \tilde{g}_{t} \rVert_{2} + \epsilon_{0}}\right)^{2},$$
+   `eta_reference="score"` (the ablation knob):
+   $$\eta_{t} = 2\left(\frac{\text{snr} \lVert z \rVert_{2}}{\lVert s_{\theta}(x_{t}, t) \rVert_{2} + \epsilon_{0}}\right)^{2}.$$
+6. **Corrector loop (ULA).** For $j = 0 \dots \texttt{corrector\_steps}-1$ at fixed $t$, with $z^{(j)} \sim N(0, I)$:
+   $$x^{(j+1)} = x^{(j)} + \eta_{t}^{(j)} g_{\text{total}}(x^{(j)}, t) + \sqrt{2\eta_{t}^{(j)}}\, z^{(j)}.$$
+   $\eta$ is recomputed every $j$. **Unadjusted** — no Metropolis accept/reject, because an MH ratio needs $\log p_{t}$ and this repo has only its
+   gradient; the stationary distribution is $q_{t}$ only as $\eta \to 0$, with an $O(\eta)$ bias that `snr` controls.
+
+### Consequences worth knowing before reading any result
+
+- **$\lambda$ anneals the step under the default.** Since $\lVert \tilde{g} \rVert = \lVert s_{\theta} \rVert$ exactly,
+  $\lVert g_{\text{total}} \rVert \leq (1+\lambda)\lVert s_{\theta}\rVert$, so *both* the drift displacement and the injected noise scale as
+  $\approx 1/(1+\lambda)$: raising $\lambda$ rotates the drift toward the reward while shrinking the step. That is the requested "prevent numerical
+  collapse at large $\lambda$" mechanism, and it means $\lambda$ and `snr` are coupled — to hold the displacement while raising $\lambda$, raise `snr`
+  by $\approx (1+\lambda)$. The `--dry-run` confirms it live: $\eta$ falls $0.109 \to 7.0\times10^{-4}$ over $\lambda = 0.79 \to 5.5$.
+  `eta_reference="score"` decouples them.
+- **Noise dominates drift by exactly $1/\text{snr}$.** $\sqrt{2\eta}\lVert z\rVert / (\eta \lVert g_{\text{total}}\rVert) = 1/\text{snr}$ identically
+  under `"total"`, independent of model, reward and $\lambda$ — a free wiring assert, recorded per corrector step as `noise_frac` and measured at
+  exactly $6.250$ in every dry-run row.
+- **ULA's variance bias has a closed form here**, and so does its finite-$d$ correction. With the exact Gaussian score and the adaptive $\eta$, the
+  stationary per-coordinate variance is
+  $$v = D (1 + \text{snr}^{2}) (1 + 2/d)^{2},$$
+  so the test asserts the *biased* value, never $D$. The $(1 + \text{snr}^{2})$ is the genuine $O(\eta)$ unadjusted-Langevin bias ($+2.56\%$ at
+  $\text{snr} = 0.16$) and is $d$-independent. The two $(1 + 2/d)$ factors are distinct artifacts of $\eta$ being *adaptive*:
+  (i) $\eta \sim \lVert z \rVert^{2}$, so the injected noise *energy* $2\eta\lVert z\rVert^{2} \sim \lVert z \rVert^{4}$ and
+  $E\lVert z\rVert^{4} = d(d+2)$ against the drift's linear $E\lVert z\rVert^{2} = d$; (ii) $\eta \sim 1/\lVert x \rVert^{2}$ makes the stationarity
+  condition linear in $1/Q$ ($Q = \lVert x\rVert^{2}$), so it pins $E[1/Q]$ and **not** $E[Q]$, and $E[Q] \geq 1/E[1/Q]$ by Jensen with gap
+  $1 + \operatorname{Var}(Q)/E[Q]^{2} = 1 + 2/d$.
+  Confirmed by ablating each source ($\eta$ with $\lVert z\rVert^{2} \to d$ reproduces exactly one factor; fully fixed $\eta$ reproduces
+  $1 + \text{snr}^{2}$ at every $d$): measured $1.15487/1.09344/1.04196/1.03026$ at $d = 32/64/256/1024$ against predicted
+  $1.15781/1.09070/1.04169/1.02961$. **Dropping source (ii) is the mistake to avoid** — a mean-field $Q \to E[Q]$ substitution gives only one factor
+  ($1.0577$ at $d = 64$) and under-predicts the measurement ($1.0891$) by half the correction. At the production $d = 65536$ the whole correction is
+  $(1 + 3.05\times10^{-5})^{2}$, i.e. unmeasurable — a small-$d$ test artifact, not a property of the sampler.
+- **TWO distinct $\lambda = 0$ controls**, and they are not interchangeable: `corrector_steps=0` (pure Phase 3 base ODE) and
+  `lam=0, corrector_steps>0` (base ODE plus pure Langevin on $p_{t}$, which still moves the cloud). Mistaking one for the other is the same class of
+  error as the leg-3.1 stitch recorded in CLAUDE.md. Both are asserted distinct in the tests.
+- **$\lambda = 0$ costs no reward backwards.** The corrector short-circuits the gradient entirely when `lam_corrector == 0`, so the pure-Langevin
+  control is one velocity evaluation per sub-step.
+
+### Code shape
+
+`guided_euler_step`, `_reward_grad`, `_shifted_schedule` and the freeze guard were lifted out of `flow_guided.py` into
+`creativity_measure/samplers/flow_guided_common.py` (non-public, same status as `smc_common.py`), so **the predictor is Phase 3's step itself, not a
+copy of it**. Consequently `corrector_steps=0` reduces `flow_guided_pc_sample` to `flow_guided_sample` **bitwise** — asserted in the tests at
+$\lambda = 0$ *and* $\lambda \neq 0$ in both Jacobian modes, and re-asserted on the real GPU at the start of every sweep job. That reduction is what
+makes the three-arm comparison apples-to-apples. The extraction is arithmetic-preserving; `test_flow_guided.py`'s own $\lambda = 0$ bitwise test is
+the regression guard and all 17 of its tests still pass unchanged.
+
+### The sweep (not yet submitted)
+
+`notebooks/flux_guided_phase5/pc_sweep.py` + `pc_sweep.slurm`, one job per arm, with setup *imported* from Phase 3's `fine_lambda_sweep.py` so
+$\lambda_{s}$, the reference latents and the whole reward config are bit-identical to that run:
+
+| arm | settings | est. |
+|---|---|---|
+| `pc_guided` | `predictor_guided=True`, `corrector_steps=2` — strict superset of Phase 3 | 3.6 h |
+| `pc_unguided` | `predictor_guided=False`, `corrector_steps=2` — all tilt from the corrector | 2.3 h |
+| `flow_guided` | `corrector_steps=0` — Phase 3, bitwise | 1.3 h |
+
+8 $\lambda$ points on *every other* point of Phase 3's zoom grid ($\{0, 0.79, 1.57, 2.36, 3.14, 3.93, 4.71, 5.5\}$), `SWEEP_SEED=1234` so $z_{0}$ is
+identical to Phase 3's and the images pair one-to-one, `exact_jacobian=True`, `n_steps=10`, `shift=3.0`. Estimates scale Phase 3's **measured** 571 s
+per guided $\lambda$ by the per-ODE-step cost ratios the dry run measured ($1.0 / 1.8 / 2.8$). `--mem=24000` (Phase 3 job 957386 measured host peak RSS
+at 10.2 GB on this exact path), `--constraint=l40s` pinned to one model, resumable per $\lambda$.
+
+**The third arm is re-run rather than read from Phase 3's stored JSON on purpose**: a GPU model change alone shifts $f$ by 16% of
+$\operatorname{std}_{p}(f)$ (job 697271), the same order as the effect being measured, so all three arms must share one GPU, one reward and one
+reference bank.
+
+**What success looks like — the hypothesis is NOT "higher $f$".** The corrector pulls back toward $p_{t}$, so at matched $\lambda$ the PC arms should
+report *lower* $f$ than Phase 3. The claim under test is that the **recognizable window extends to larger $\lambda$**: at $\lambda \in [3.9, 5.5]$,
+where Phase 3 is destroyed, PC images should still read as "a dog". Quantitative proxies recorded per point are `x_norm_final`
+($\lVert x \rVert/\sqrt{d}$; off-manifold failure inflates it) and `hf_frac` (spectral power above 0.25 Nyquist). **Caveat measured on Phase 3's own
+stored images: `hf_frac` is NOT monotone in $\lambda$** — $0.0546$ at $\lambda = 0$ (photo-like dog) $\to 0.0213$ at $\lambda = 1.57$ (a smooth
+restyle genuinely has less high-frequency content than a photograph) $\to 0.0417$ at $\lambda = 5.5$ — so it is usable as a comparison *across arms at
+matched $\lambda$*, never as an absolute "is this broken" score. `render_pc_comparison.py` builds the arm $\times \lambda$ grid and the table, and
+cross-checks the re-run `flow_guided` arm against Phase 3's stored values.
+
+The dry run (tiny random transformer, so indicative of the mechanism only, never of real FLUX) already shows the intended behaviour:
+$\lVert x \rVert/\sqrt{d}$ runs $1.25 \to 4.89$ across the $\lambda$ grid for `flow_guided`, $1.10 \to 4.29$ for `pc_guided`, and stays flat at
+$1.06 \to 1.23$ for `pc_unguided` — i.e. the corrector holds the latent norm, which is exactly the hypothesised mechanism.
 
 ## Phase 6 — Generation quality versus compute cost (not implemented)
 

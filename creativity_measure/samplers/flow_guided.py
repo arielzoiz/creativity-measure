@@ -30,38 +30,32 @@ nothing in the reward chain contains a nested autograd.grad, so no double-backwa
 Sign, derived once here (this repo's own history shows this class of error is silent, see above): the
 Euler step is ``x_next = x - dt*v_guided``. To move x_next along +g (ascending r), we need
 ``v_guided = v - lam*g_t``, giving ``x_next = x - dt*v + dt*lam*g_t``.
+
+The step itself, the gradient helper, the schedule and the freeze guard now live in
+``flow_guided_common.py`` (non-public, like ``smc_common.py``), because ``flow_guided_pc.py`` -- Phase 5's
+predictor-corrector Langevin sampler -- uses the SAME Euler step as its predictor. ``_EPS``,
+``_GammaChunkable``, ``_shifted_schedule`` and ``_reward_grad`` are re-exported here under their original
+names, so existing importers keep working.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Protocol, runtime_checkable
+from typing import Literal
 
 import torch
 from jaxtyping import Float
 from torch import Tensor
 
 from creativity_measure._types import VelocityFn
+from creativity_measure.samplers.flow_guided_common import (
+    _EPS as _EPS,
+    _GammaChunkable as _GammaChunkable,
+    _reward_grad as _reward_grad,
+    _shifted_schedule as _shifted_schedule,
+    guided_euler_step,
+    require_frozen_module,
+)
 from creativity_measure.tilt import Reward
-
-_EPS = 1e-12
-
-
-@runtime_checkable
-class _GammaChunkable(Protocol):
-    """Structural capability a Distance needs for the OOM fallback to chunk the MC (gamma) axis instead
-    of the batch axis -- see `_reward_grad`'s docstring for why the batch axis is the wrong one to chunk.
-
-    Added to `SquaredIIDGlobalIEMDistance` in notebooks/iid_iem_flux_check/ROADMAP.md Phase 3 step 1b,
-    deliberately AFTER this module and its non-fallback tests, so this file can be written and verified
-    without editing the reward class while a Phase-1 GPU job (frozen bank, additive-only change) is live.
-    Until that method exists, `isinstance(distance, _GammaChunkable)` is simply False and the fallback
-    raises NotImplementedError -- the approximate/exact gradient paths themselves need none of this.
-    """
-    gammas: Tensor
-
-    def expected_gamma_chunk(
-        self, X: Float[Tensor, "B d"], x_refs: Float[Tensor, "R d"], g_lo: int, g_hi: int,
-    ) -> Float[Tensor, "B"]: ...
 
 
 @dataclass
@@ -94,90 +88,6 @@ class FlowGuidedResult:
     f_hat0_history: list[float] = field(default_factory=list)
     oom_fallback_history: list[bool] = field(default_factory=list)
     static_fallback_history: list[bool] = field(default_factory=list)
-
-
-def _shifted_schedule(n_steps: int, shift: float, *, device: torch.device, dtype: torch.dtype) -> Tensor:
-    """Resolution-shifted flow-matching schedule, diffusers-native t (1 = noise, 0 = data).
-
-    Mirrors ``FlowMatchEulerDiscreteScheduler`` (FLUX.1-dev's default, also used by SD3/SD3.5): linear
-    sigmas in ``[1/n_steps, 1]`` (descending), then the shift ``sigma <- shift*sigma / (1 + (shift-1)*sigma)``
-    (shift=1 is the identity, i.e. unshifted -- the right choice for a backend with no resolution shift),
-    with a trailing 0 appended -- same "N steps from N+1 nodes, final node 0" shape as this repo's own
-    ``generators.base.karras_sigma_schedule``, just in flow-matching t instead of EDM sigma.
-    """
-    if n_steps < 1:
-        raise ValueError(f"n_steps must be >= 1, got {n_steps}")
-    sigmas = torch.linspace(1.0, 1.0 / n_steps, n_steps, device=device, dtype=dtype)
-    sigmas = shift * sigmas / (1.0 + (shift - 1.0) * sigmas)
-    return torch.cat([sigmas, sigmas.new_zeros(1)])
-
-
-def _reward_grad(
-    reward: Reward,
-    reward_input: Float[Tensor, "B d"],
-    grad_target: Float[Tensor, "B d"],
-    *,
-    create_graph: bool = False,
-    g_chunk: int | None = None,
-    force_fallback: bool = False,
-) -> tuple[Float[Tensor, "B d"], bool]:
-    """``grad_{grad_target} reward(reward_input).sum()``, with a gamma-chunked fallback on OOM.
-
-    ``reward_input`` and ``grad_target`` are the SAME tensor on the approximate path (grad w.r.t.
-    ``x_hat_0`` itself) and DIFFERENT tensors on the exact path (``reward_input = x_hat_0``,
-    ``grad_target = x_t``/``x_req``, since the graph connecting them must be walked). Returns
-    ``(grad, fell_back)``.
-
-    ``create_graph=False`` and ``retain_graph=False`` (``True`` only for non-final fallback chunks, which
-    all share ``grad_target``'s subgraph) are always passed explicitly, never left to default: this frees
-    intermediate forward activations the instant the gradient is computed, keeping VRAM flat across a
-    28-50 step trajectory instead of ballooning.
-
-    The fallback chunks the MC (gamma) axis, NOT the batch axis: score rows are G * N_eps * B
-    (`iid_global_iem.iid_score_bank`), so at B=1 -- the standard case for a 12 B model, one sample per
-    trajectory -- a batch-dimension loop provides ZERO memory relief, while a gamma-chunk loop cuts peak
-    concurrently-live score activations by g_chunk/G. Exact up to floating-point reduction order: the
-    reward decomposes as an exact weighted sum over independent per-gamma terms
-    (`iid_iem_sq_expected`), never a nested autograd.grad, so chunked accumulation reproduces the batched
-    gradient (Phase 2 measured 1.86e-09 for the analogous per-sample split).
-    """
-    if not force_fallback:
-        try:
-            loss = reward(reward_input).sum()
-            (grad,) = torch.autograd.grad(loss, grad_target, create_graph=create_graph, retain_graph=False)
-            return grad, False
-        except torch.cuda.OutOfMemoryError:
-            if grad_target.device.type == "cuda":
-                torch.cuda.empty_cache()
-        except RuntimeError as e:
-            if "out of memory" not in str(e).lower():
-                raise
-
-    distance = reward.distance
-    if not isinstance(distance, _GammaChunkable):
-        raise NotImplementedError(
-            "reward ran out of memory and its Distance does not support the gamma-chunked OOM fallback "
-            f"(needs expected_gamma_chunk; got {type(distance).__name__}). See "
-            "notebooks/iid_iem_flux_check/ROADMAP.md Phase 3 step 1b."
-        )
-    if reward.weights is not None:
-        raise NotImplementedError("gamma-chunked OOM fallback does not yet support non-uniform weights")
-    denom = getattr(reward, "_denom", 1.0)
-    G = distance.gammas.shape[0]
-    chunk = g_chunk if g_chunk is not None else 1
-    bounds = list(range(0, G, chunk)) + [G]
-    total_grad = torch.zeros_like(grad_target)
-    for i in range(len(bounds) - 1):
-        g_lo, g_hi = bounds[i], bounds[i + 1]
-        is_last = g_hi >= G
-        partial = distance.expected_gamma_chunk(reward_input, reward.x_refs, g_lo, g_hi)
-        loss = (partial / denom).sum()
-        (g,) = torch.autograd.grad(loss, grad_target, create_graph=create_graph, retain_graph=not is_last)
-        total_grad = total_grad + g
-        del loss, g
-        if grad_target.device.type == "cuda":
-            torch.cuda.empty_cache()
-    return total_grad, True
 
 
 def flow_guided_sample(
@@ -249,21 +159,7 @@ def flow_guided_sample(
         an image.
     """
     if exact_jacobian:
-        module = getattr(velocity_fn, "module", None)
-        if module is None:
-            raise ValueError(
-                "exact_jacobian=True needs velocity_fn.module (e.g. from "
-                "generators.flux.flux_velocity_fn, or any backend builder conforming to "
-                "_types.GuidableVelocityFn) to verify the model is frozen before building an autograd "
-                "graph through it."
-            )
-        if any(p.requires_grad for p in module.parameters()) or module.training:
-            raise ValueError(
-                "exact_jacobian=True requires velocity_fn.module to be frozen (requires_grad_(False)) "
-                "and in eval() -- build it with flux_velocity_fn(..., differentiable=True) (or another "
-                "backend's equivalent). Skipping this check would let autograd allocate gradient buffers "
-                "for every model parameter and OOM on the first backward."
-            )
+        require_frozen_module(velocity_fn, flag="exact_jacobian=True")
 
     x_refs = reward.x_refs
     device, dtype, d = x_refs.device, x_refs.dtype, x_refs.shape[1]
@@ -282,68 +178,26 @@ def flow_guided_sample(
 
     for i in range(n_steps):
         t_from, t_to = float(schedule[i]), float(schedule[i + 1])
-        dt = t_from - t_to
         guided = lam != 0.0 and t_end <= t_from <= t_start
 
-        if not guided:
-            with torch.no_grad():
-                v = velocity_fn(x, t_from)
-            res.t_history.append(t_from)
-            res.guided_history.append(False)
-            res.grad_norm_history.append(float("nan"))
-            res.v_norm_history.append(float(v.norm(dim=1).mean()))
-            res.applied_norm_history.append(0.0)
-            res.f_hat0_history.append(float("nan"))
-            res.oom_fallback_history.append(False)
-            res.static_fallback_history.append(False)
-            x = (x - dt * v).detach()
-            continue
-
-        if exact_jacobian:
-            x_req = x.detach().requires_grad_(True)
-            v = velocity_fn(x_req, t_from)                        # grad ENABLED: graph starts at x_req
-            x_hat0 = x_req - t_from * v
-            g, fell_back = _reward_grad(reward, x_hat0, x_req, create_graph=False, g_chunk=g_chunk)
-            v = v.detach()
-            x_hat0 = x_hat0.detach()
-        else:
-            with torch.no_grad():
-                v = velocity_fn(x, t_from)
-            x_hat0 = (x - t_from * v).detach().requires_grad_(True)
-            g, fell_back = _reward_grad(reward, x_hat0, x_hat0, create_graph=False, g_chunk=g_chunk)
-            x_hat0 = x_hat0.detach()
-
-        if grad_clip_percentile is not None:
-            k = max(1, int(g.shape[1] * grad_clip_percentile / 100.0))
-            thresh = g.abs().kthvalue(k, dim=1).values.clamp_min(_EPS)
-            g = g.clamp(min=-thresh.unsqueeze(1), max=thresh.unsqueeze(1))
-
-        grad_norm = g.norm(dim=1, keepdim=True)
-        v_norm = v.norm(dim=1, keepdim=True)
-        static_fallback = bool((v_norm < min_v_norm).any())
-        if grad_scaling == "velocity":
-            scale = torch.where(v_norm < min_v_norm, torch.full_like(v_norm, static_scale), v_norm)
-            g_t = g / (grad_norm + _EPS) * scale
-        else:
-            g_t = g / (grad_norm + _EPS) * static_scale
-
-        v_guided = v - lam * g_t
-        x_next = (x - dt * v_guided).detach()  # memory isolation: never chains in VRAM across steps
+        x, rec = guided_euler_step(
+            x, t_from=t_from, t_to=t_to, reward=reward, lam=lam, velocity_fn=velocity_fn,
+            guided=guided, exact_jacobian=exact_jacobian, grad_scaling=grad_scaling,
+            static_scale=static_scale, grad_clip_percentile=grad_clip_percentile,
+            min_v_norm=min_v_norm, g_chunk=g_chunk,
+        )
 
         res.t_history.append(t_from)
-        res.guided_history.append(True)
-        res.grad_norm_history.append(float(grad_norm.mean()))
-        res.v_norm_history.append(float(v_norm.mean()))
-        res.applied_norm_history.append(float((lam * g_t).norm(dim=1).mean()))
-        with torch.no_grad():
-            res.f_hat0_history.append(float(reward(x_hat0).mean()))
-        res.oom_fallback_history.append(fell_back)
-        res.static_fallback_history.append(static_fallback)
-        if verbose:
-            print(f"[step {i}] t={t_from:.4f} guided grad_norm={res.grad_norm_history[-1]:.4g} "
-                  f"v_norm={res.v_norm_history[-1]:.4g} f_hat0={res.f_hat0_history[-1]:.4g}")
-
-        x = x_next
+        res.guided_history.append(rec.guided)
+        res.grad_norm_history.append(rec.grad_norm)
+        res.v_norm_history.append(rec.v_norm)
+        res.applied_norm_history.append(rec.applied_norm)
+        res.f_hat0_history.append(rec.f_hat0)
+        res.oom_fallback_history.append(rec.oom_fallback)
+        res.static_fallback_history.append(rec.static_fallback)
+        if verbose and rec.guided:
+            print(f"[step {i}] t={t_from:.4f} guided grad_norm={rec.grad_norm:.4g} "
+                  f"v_norm={rec.v_norm:.4g} f_hat0={rec.f_hat0:.4g}")
 
     res.X = x
     return res

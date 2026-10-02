@@ -1,0 +1,496 @@
+"""Phase 5: does Langevin correction extend Phase 3's creative window?
+
+Phase 3 (`notebooks/flux_guided_phase3/fine_lambda_sweep.py`, jobs 958150/958630) found a
+creative-but-recognizable window at lam in [0.4, 3.54] and a hard ceiling past lam ~ 3.93, where the
+guided ODE locks onto a fixed off-manifold attractor and f runs away (143.97 at lam=3.93 -> 271.24 at
+lam=5.5, all visually deep-fried). Phase 5 interleaves `corrector_steps` ULA steps at each arrival node, whose drift contains the model's own marginal score, so the particle re-equilibrates onto p_t after
+each nudge (`creativity_measure/samplers/flow_guided_pc.py`).
+
+THREE ARMS, one job each, same reward / same refs / same z0 / same GPU model:
+
+    pc_guided     predictor_guided=True,  corrector_steps=C   -- strict superset of Phase 3
+    pc_unguided   predictor_guided=False, corrector_steps=C   -- all tilt from the corrector
+    flow_guided   corrector_steps=0                           -- Phase 3, bitwise
+
+The third arm is RE-RUN here rather than read out of Phase 3's stored JSON on purpose: CLAUDE.md records
+that a GPU model change alone shifts f by 16% of std_p(f) (job 697271), the same order as the effect being
+measured. Its reduction to Phase 3 is asserted on the actual hardware at startup (see
+`preflight`), not assumed.
+
+WHAT SUCCESS LOOKS LIKE -- read this before reading the numbers. The hypothesis is NOT "higher f". The
+corrector pulls back toward p_t, so at matched lam the PC arms should report LOWER f than Phase 3. The
+claim under test is that the RECOGNIZABLE window extends to larger lam: at lam in [3.9, 5.5], where
+Phase 3 is destroyed, PC images should still read as "a dog". The quantitative proxies recorded per point
+are `hf_frac` (fraction of spectral power above 0.25 Nyquist -- the graininess metric CLAUDE.md's
+gamma-window finding already used) and `x_norm_final` (off-manifold failure inflates the latent norm);
+f is read only WITHIN the still-recognizable band. Same rule as everywhere else in this repo: rising
+novelty is never the stopping signal.
+
+Setup is IMPORTED from Phase 3's fine_lambda_sweep.py rather than copied: lambda_s, the reference latents
+and the whole reward config must be bit-identical to that run for the cross-phase image comparison to
+mean anything, and a copy would drift. Everything imported is construction-only -- that module's own
+main() is __main__-guarded and never runs here.
+
+CONVENTION NOTE: t is diffusers-native (t=1 noise, t=0 data) throughout, same as flow_guided.py.
+Read E_q[f] at the terminal t=0 only.
+
+    python pc_sweep.py --arm pc_guided          # on a GPU node (see pc_sweep.slurm)
+    python pc_sweep.py --arm pc_guided --dry-run  # CPU, tiny FluxTransformer2DModel, no decode
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from typing import Any
+
+import torch
+from torch import Tensor
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PHASE3 = os.path.join(HERE, "..", "flux_guided_phase3")
+sys.path.insert(0, PHASE3)
+
+from fine_lambda_sweep import (   # noqa: E402  # pyright: ignore[reportMissingImports]  (sys.path above)
+    N_PARTICLES, N_STEPS_ODE, SHIFT, SWEEP_SEED, Setup, dry_setup, flux_setup, note,
+)
+
+from creativity_measure.samplers.flow_guided import flow_guided_sample                     # noqa: E402
+from creativity_measure.samplers.flow_guided_pc import (                                   # noqa: E402
+    SNR_SONG_2021, flow_guided_pc_sample, velocity_to_score,
+)
+
+# Lambda lattice: Phase 3's zoom grid is 15 points uniform in [0, 5.5], i.e. k * LAM_STEP for
+# k = 0..14. Addressing lambdas by lattice index k keeps every point ON that lattice -- so each lambda
+# <= 5.5 lands exactly on an existing fine_decoded_max5.5/*.png and the images pair one-to-one -- while
+# letting k > 14 extend PAST Phase 3's range. That extension is the point: the max5.5 grid was chosen to
+# bracket PHASE 3's collapse, so if the corrector pushes the ceiling out, 5.5 is too short to find it.
+LAM_STEP = 5.5 / 14
+
+# Wave 1: uniform every-other-lattice-point from 0 to 7.857. Deliberately NOT concentrated on the
+# high-lam region, for two reasons found while checking a sparser draft:
+#   (a) Phase 3's creative window [0.40, 3.54] holds 8 lattice points (k=2..9); the corrector may well
+#       change behaviour INSIDE it (it pulls back toward p_t, so it could make images less creative, not
+#       more), and a grid that samples the window twice cannot see that.
+#   (b) under eta_reference="total" the corrector's measured displacement falls 12x from lam=0.79 to
+#       lam=5.5 (dry run: 0.288 -> 0.024; faster than the 1/(1+lam) coupling alone predicts, because
+#       ||s_theta|| also grows as the latents drift off-manifold). So at high lam the corrector is nearly
+#       switched off, and "PC ~ Phase 3 up there" would be an artifact of the step-size rule rather than a
+#       statement about the mechanism. Hence the companion eta_reference="score" arm, where eta is
+#       lam-independent and lam only ROTATES the drift.
+LAM_K_DEFAULT = (0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20)
+
+CORRECTOR_STEPS = 1            # ULA steps per ODE step. NOT this repo's m = lam/lam_s, and not
+                               # Algorithm 3's particle count M -- both already exist in CLAUDE.md.
+                               # 1 is Song et al.'s reference PC setting at snr=0.16, and it makes
+                               # pc_unguided cost 524 s/lambda against Phase 3's measured 572 s/lambda --
+                               # i.e. the EXISTING max5.5 run is already a compute-matched control for
+                               # that arm, for free.
+SNR = SNR_SONG_2021
+ETA_REFERENCE = "total"
+EXACT_JACOBIAN = True          # Phase 3's production setting (fine_lambda_sweep.py), for comparability
+
+ARMS = ("pc_guided", "pc_unguided", "flow_guided")
+
+# Preflight reference values, all from Phase 3's completed runs on this exact config (every seed's stamp
+# records lambda_s = 81.016 on an NVIDIA L40S).
+LAM_S_EXPECTED = 81.016
+LAM_S_TOL = 0.05
+EXPECTED_GPU = "L40S"
+
+LAM_GRID: list[float] = []     # set in main() from --lam-k
+N_STEPS: int = 0               # set in main() from --n-steps
+RESULTS = ""                   # set in main(), keyed on the FULL config
+DECODED_DIR = ""
+
+
+# =====================================================================================================
+# Image-space off-manifold proxy
+# =====================================================================================================
+
+def hf_power_fraction(img: Tensor, cutoff: float = 0.25) -> float:
+    """Fraction of 2D spectral power at radial frequency above ``cutoff`` x Nyquist.
+
+    The quantitative stand-in for "is it deep-fried": CLAUDE.md's gamma-window finding already used
+    exactly this band (samples gained 1.5-1.7x more power above 0.25 Nyquist when the lower gamma cut was
+    extended, i.e. high-frequency graininess). DC is zeroed so the measure is contrast-invariant.
+
+    Args:
+        img: ``(C, H, W)`` or ``(H, W)`` in [0, 1]. Channels are averaged to luminance first.
+    """
+    g = img.mean(dim=0) if img.ndim == 3 else img
+    p = torch.fft.fftshift(torch.fft.fft2(g.double())).abs() ** 2
+    h, w = p.shape
+    fy = torch.fft.fftshift(torch.fft.fftfreq(h)).abs() * 2.0        # in units of Nyquist
+    fx = torch.fft.fftshift(torch.fft.fftfreq(w)).abs() * 2.0
+    r = (fy[:, None] ** 2 + fx[None, :] ** 2).sqrt()
+    p[h // 2, w // 2] = 0.0                                          # drop DC
+    total = float(p.sum())
+    return float(p[r > cutoff].sum()) / total if total > 0 else float("nan")
+
+
+# =====================================================================================================
+# Results file (atomic, resumable per lambda) -- same convention as Phase 3's fine_lambda_sweep.py
+# =====================================================================================================
+
+def load_results(stamp: dict) -> dict:
+    if os.path.exists(RESULTS):
+        with open(RESULTS) as fh:
+            old = json.load(fh)
+        if old.get("stamp") == stamp:
+            print(f"[resume] {RESULTS}: {sorted(k for k in old if k != 'stamp')}")
+            return old
+        os.replace(RESULTS, RESULTS + ".stale")
+        print("[resume] stamp mismatch -> old results moved to .stale, starting fresh")
+    return {"stamp": stamp}
+
+
+def save_results(res: dict) -> None:
+    tmp = RESULTS + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(res, fh, indent=2)
+    os.replace(tmp, RESULTS)
+
+
+# =====================================================================================================
+# The sweep
+# =====================================================================================================
+
+def _arm_kwargs(arm: str) -> dict[str, Any]:
+    if arm == "pc_guided":
+        return dict(predictor_guided=True, corrector_steps=CORRECTOR_STEPS)
+    if arm == "pc_unguided":
+        return dict(predictor_guided=False, corrector_steps=CORRECTOR_STEPS)
+    if arm == "flow_guided":
+        return dict(predictor_guided=True, corrector_steps=0)
+    raise ValueError(f"unknown arm {arm!r}, expected one of {ARMS}")
+
+
+def preflight(S: Setup, sweep_seed: int, *, dry_run: bool) -> dict[str, Any]:
+    """Tier-1 checks: everything whose failure invalidates the WHOLE job. Raises; never warns.
+
+    Runs before any sweep point. Total cost ~4 min against a multi-hour sweep, and all but the last two
+    items are free (they ride on values the setup already computed).
+    """
+    out: dict[str, Any] = {}
+
+    # (1) GPU model. The arms are only comparable on ONE model -- a GPU change alone shifts f by 16% of
+    # std_p(f) (job 697271), the same order as the effect being measured. Checked FIRST because it is the
+    # only item that does not need the reward, i.e. the only one that can fail before the ref-bank build.
+    if not dry_run:
+        gpu = torch.cuda.get_device_name(0)
+        out["gpu_name"] = gpu
+        note(f"preflight gpu: {gpu}")
+        if EXPECTED_GPU not in gpu:
+            raise AssertionError(
+                f"expected a {EXPECTED_GPU} (every Phase 3 run's stamp records 'NVIDIA L40S') but landed "
+                f"on {gpu!r}. Results from this GPU are NOT comparable to the other arms -- fix "
+                "--constraint and resubmit rather than interpreting this run."
+            )
+
+    # (2) f(x_refs) == (R-1)/R exactly, for uniform weights (CLAUDE.md). Free: the bank is already built,
+    # so this costs no score rows. Tolerance 1e-3, NOT 0.10 -- 0.10 cannot separate 63/64 from the
+    # failure modes that land on exactly 1.0. Tests normalization wiring only.
+    with torch.no_grad():
+        f_refs = float(S.reward(S.reward.x_refs).mean())
+    r = S.reward.x_refs.shape[0]
+    expected = (r - 1) / r
+    out["f_refs"] = f_refs
+    note(f"preflight f(refs): {f_refs:.6f} vs (R-1)/R = {expected:.6f}  (R={r})")
+    if abs(f_refs - expected) > 1e-3:
+        raise AssertionError(
+            f"f(x_refs) = {f_refs:.6f} but uniform weights demand exactly (R-1)/R = {expected:.6f}. "
+            "The reward's normalization is mis-wired; every f in this job would be on the wrong scale."
+        )
+
+    # (3) lambda_s reproduces Phase 3's. Free (already computed by _build_reward_and_lam_s). This is the
+    # check that the refset/reward config did not drift from the run we are comparing against.
+    out["lam_s"] = S.lam_s
+    if not dry_run:
+        rel = abs(S.lam_s - LAM_S_EXPECTED) / LAM_S_EXPECTED
+        note(f"preflight lambda_s: {S.lam_s:.3f} vs Phase 3's {LAM_S_EXPECTED} (rel {rel:.2%})")
+        if rel > LAM_S_TOL:
+            raise AssertionError(
+                f"lambda_s = {S.lam_s:.3f} differs from Phase 3's {LAM_S_EXPECTED} by {rel:.1%} "
+                f"(> {LAM_S_TOL:.0%}). The reference latents or the reward config diverged, so no number "
+                "here is comparable to Phase 3."
+            )
+
+    # (4) The score reparametrization, cross-validated against the reward's OWN EDM/Tweedie score path on
+    # the real model. The formula is pure algebra and already unit-tested on CPU; what this buys is
+    # NUMERICAL CONDITIONING in bfloat16 at d=65536, since eps_hat = x_t + (1-t)v is a difference of
+    # same-order terms. Two independently-coded paths, related by the Jacobian of x_sigma = x_t/(1-t):
+    #     velocity_to_score(x_t, v, t)  ==  gamma * score_fn(gamma * x_t/(1-t), gamma) / (1-t)
+    # t is swept over the corrector's actual operating range; gamma must stay inside the denoiser's
+    # [1/sigma_max^2, 1/sigma_min^2], which excludes t -> 1.
+    score_fn = getattr(S.reward.distance, "score_fn", None)
+    if score_fn is None:
+        note("preflight score check: SKIPPED (distance exposes no score_fn)")
+    else:
+        t0 = time.time()
+        gen = torch.Generator(device=S.device).manual_seed(4242)
+        rels: dict[str, float] = {}
+        for t in (0.9, 0.5, 0.1, 0.02):
+            x_t = torch.randn(1, S.d, generator=gen, device=S.device, dtype=S.dtype)
+            with torch.no_grad():
+                v = S.velocity_fn(x_t, t)
+                s_flow = velocity_to_score(x_t, v, t)
+                gamma = torch.tensor(((1.0 - t) / t) ** 2, device=S.device, dtype=torch.float32)
+                s_edm = gamma * score_fn(gamma * x_t.float() / (1.0 - t), gamma) / (1.0 - t)
+            rel = float((s_flow - s_edm).norm() / s_edm.norm().clamp_min(1e-30))
+            rels[f"t{t}"] = rel
+            note(f"preflight score check t={t:.2f}: rel diff {rel:.3e}")
+        out["score_xval_rel"] = rels
+        out["score_xval_s"] = time.time() - t0
+        worst = max(rels.values())
+        if worst > 2e-2:
+            raise AssertionError(
+                f"velocity_to_score disagrees with the reward's own EDM score path by {worst:.3e} "
+                "(> 2e-2) at production scale/dtype. The corrector's drift and the reward would be using "
+                "inconsistent scores; do not interpret this run."
+            )
+
+    # (5) The bitwise reduction. The whole three-arm comparison rests on the flow_guided arm BEING
+    # Phase 3, not merely Phase-3-like. n_steps=2 so it costs ~2 guided steps.
+    kw: dict[str, Any] = dict(
+        velocity_fn=S.velocity_fn, n_steps=2, shift=SHIFT, t_start=1.0, t_end=0.0,
+        exact_jacobian=EXACT_JACOBIAN, seed=sweep_seed,
+    )
+    t0 = time.time()
+    ref = flow_guided_sample(S.reward, 1.0, N_PARTICLES, **kw)
+    pc = flow_guided_pc_sample(S.reward, 1.0, N_PARTICLES, corrector_steps=0, **kw)
+    ok = torch.equal(pc.X, ref.X)
+    out["reduction_bitwise"] = ok
+    note(f"preflight reduction: corrector_steps=0 vs flow_guided_sample bitwise={ok} "
+         f"({time.time() - t0:.1f}s)")
+    if not ok:
+        raise AssertionError(
+            "flow_guided_pc_sample(corrector_steps=0) is NOT bitwise equal to flow_guided_sample on this "
+            f"hardware (max abs diff {float((pc.X - ref.X).abs().max()):.3e}). The three-arm comparison "
+            "is invalid until this holds -- do not interpret any result from this job."
+        )
+    return out
+
+
+def check_point(result: Any, arm: str, lam: float, n_corr_steps: int) -> None:
+    """Tier-2 asserts: free, per-point, and they RAISE rather than warn.
+
+    The sweep is resumable per lambda, so a hard failure costs one point and a resubmit; a silently wrong
+    point pollutes a cross-arm conclusion that someone will act on. Every quantity here is already
+    recorded -- nothing extra is computed.
+    """
+    if not torch.isfinite(result.X).all():
+        raise AssertionError(f"lam={lam}: terminal latents contain non-finite values")
+
+    ran = [s for s in result.corrector_history if s.ran]
+    n_corr_nodes = len(ran)
+
+    # Effort accounting: the cheapest possible check that the sampler did what its kwargs said. The
+    # corrector is skipped at the schedule's final t=0 node, so it is n_corr_nodes, NOT n_steps.
+    exp_vel = N_STEPS + n_corr_nodes * n_corr_steps
+    exp_grad = (N_STEPS if arm != "pc_unguided" and lam != 0 else 0) + (
+        n_corr_nodes * n_corr_steps if lam != 0 else 0)
+    if result.n_velocity_evals != exp_vel:
+        raise AssertionError(
+            f"lam={lam}: {result.n_velocity_evals} velocity evals, expected {exp_vel} "
+            f"(= {N_STEPS} predictor + {n_corr_nodes} nodes x {n_corr_steps})")
+    if result.n_reward_grads != exp_grad:
+        raise AssertionError(
+            f"lam={lam}: {result.n_reward_grads} reward grads, expected {exp_grad}")
+
+    if lam == 0.0 and result.n_reward_grads != 0:
+        raise AssertionError(f"lam=0 must cost zero reward gradients, got {result.n_reward_grads}")
+
+    for s in ran:
+        # ||g_tilde|| == ||s_theta|| by construction, so ||g_total|| <= (1+lam)||s_theta|| exactly.
+        for dn, sn in zip(s.drift_norm, s.score_norm):
+            if dn > (1.0 + abs(lam)) * sn * 1.001 + 1e-6:
+                raise AssertionError(
+                    f"lam={lam}, t={s.t}: ||g_total||={dn:.6g} exceeds (1+lam)||s||={(1+abs(lam))*sn:.6g}")
+        # sqrt(2 eta)||z|| / (eta ||g_total||) == 1/snr identically under eta_reference="total".
+        if ETA_REFERENCE == "total":
+            for nf in s.noise_frac:
+                if abs(nf - 1.0 / SNR) > 1e-3 * (1.0 / SNR):
+                    raise AssertionError(
+                        f"lam={lam}, t={s.t}: noise/drift ratio {nf:.6f} != 1/snr = {1.0/SNR:.6f}; "
+                        "the step size is mis-wired")
+
+
+def _z0_for(S: Setup, z0_seed: int) -> Tensor:
+    """The same z0 ``flow_guided_pc_sample(seed=z0_seed)`` would draw for itself.
+
+    Passing it explicitly is what lets a run hold z0 FIXED while ``--sweep-seed`` varies only the
+    corrector noise -- the decomposition that separates PC's extra (Langevin) variance from the z0
+    variance Phase 3 also has. The draw must match the sampler's own line exactly (same shape, device,
+    dtype and generator seeding) or the two are not comparable.
+    """
+    gen = torch.Generator(device=S.device).manual_seed(z0_seed)
+    return torch.randn(N_PARTICLES, S.d, generator=gen, device=S.device, dtype=S.dtype)
+
+
+def run_one(S: Setup, arm: str, idx: int, lam: float, res: dict, sweep_seed: int,
+            z0_seed: int | None) -> None:
+    key = f"idx{idx:02d}_lam{lam:.4f}"
+    if key in res:
+        note(f"{key} already done: f={res[key]['f_mean']:.5f}, t={res[key]['t_sample_s']:.1f}s")
+        return
+
+    t0 = time.time()
+    result = flow_guided_pc_sample(
+        S.reward, lam, N_PARTICLES, velocity_fn=S.velocity_fn, n_steps=N_STEPS, shift=SHIFT,
+        t_start=1.0, t_end=0.0, exact_jacobian=EXACT_JACOBIAN, snr=SNR, eta_reference=ETA_REFERENCE,
+        seed=sweep_seed, z0=None if z0_seed is None else _z0_for(S, z0_seed), **_arm_kwargs(arm),
+    )
+    t_sample = time.time() - t0
+    check_point(result, arm, lam, _arm_kwargs(arm)["corrector_steps"])
+    with torch.no_grad():
+        f = S.reward(result.X)
+
+    ran = [s for s in result.corrector_history if s.ran]
+    flat = lambda attr: [v for s in ran for v in getattr(s, attr)]           # noqa: E731
+    mean = lambda vals: (sum(vals) / len(vals)) if vals else float("nan")    # noqa: E731
+
+    png_path, hf_frac = None, float("nan")
+    if S.decode is not None:
+        os.makedirs(DECODED_DIR, exist_ok=True)
+        img = S.decode(result.X)[0]
+        hf_frac = hf_power_fraction(img)
+        from PIL import Image
+        arr = (img.permute(1, 2, 0).clamp(0, 1) * 255).round().to(torch.uint8).numpy()
+        png_path = os.path.join(DECODED_DIR, f"{key}.png")
+        Image.fromarray(arr).save(png_path)
+
+    res[key] = {
+        "arm": arm, "idx": idx, "lam": lam, "m": lam / S.lam_s if S.lam_s else 0.0,
+        "f_mean": float(f.mean()), "f_std": float(f.std()),
+        # predictor diagnostics -- same fields Phase 3 logs, so the arms line up column for column
+        "applied_norm_mean": mean(result.applied_norm_history),
+        "v_norm_mean": mean(result.v_norm_history),
+        # corrector diagnostics
+        "corrector_nodes": len(ran),
+        "corrector_eta_mean": mean(flat("eta")),
+        "corrector_rel_disp_mean": mean(flat("rel_displacement")),
+        "corrector_score_norm_mean": mean(flat("score_norm")),
+        "corrector_drift_norm_mean": mean(flat("drift_norm")),
+        "corrector_noise_frac_mean": mean(flat("noise_frac")),   # must be 1/snr = 6.25 under "total"
+        # off-manifold proxies
+        "x_norm_final": result.x_norm_history[-1] if result.x_norm_history else float("nan"),
+        "hf_frac": hf_frac,
+        # accounting
+        "n_velocity_evals": result.n_velocity_evals,
+        "n_reward_grads": result.n_reward_grads,
+        "oom_fallback_any": (any(result.oom_fallback_history)
+                              or any(f for s in result.corrector_history for f in s.oom_fallback)),
+        "t_sample_s": t_sample,
+        "png": png_path,
+    }
+    save_results(res)
+    r = res[key]
+    note(f"{key}: m={r['m']:.3f} f={r['f_mean']:.4f} |x|/sqrt(d)={r['x_norm_final']:.4f} "
+         f"hf={r['hf_frac']:.4f} eta={r['corrector_eta_mean']:.3g} "
+         f"disp={r['corrector_rel_disp_mean']:.3g} nf={r['corrector_noise_frac_mean']:.3f} "
+         f"t={t_sample:.1f}s ({t_sample / N_STEPS:.2f}s/ode-step)")
+
+
+def main() -> None:
+    global RESULTS, DECODED_DIR, CORRECTOR_STEPS, SNR, ETA_REFERENCE, LAM_GRID, N_STEPS
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--arm", choices=ARMS, required=True,
+                    help="which of the three arms to run; one job per arm (see pc_sweep.slurm).")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--tag", type=str, default=None,
+                    help="extra suffix on top of the auto-generated config key (see below). Only needed "
+                         "to separate two runs that differ in NOTHING the key already captures.")
+    ap.add_argument("--n-steps", type=int, default=N_STEPS_ODE,
+                    help="ODE steps (default: %(default)s, Phase 3's). Raise it on the flow_guided arm "
+                         "to build a COMPUTE-MATCHED control: pc_guided at n_steps=10, corrector_steps=1 "
+                         "spends 10 + 9 = 19 guided units, so flow_guided at --n-steps 19 costs the same "
+                         "and isolates 'the corrector helps' from 'more compute helps'.")
+    ap.add_argument("--lam-k", type=str, default=",".join(str(k) for k in LAM_K_DEFAULT),
+                    help="comma-separated lattice indices k; lambda = k * 5.5/14, i.e. Phase 3's zoom "
+                         "grid. k <= 14 pairs exactly with an existing fine_decoded_max5.5 image; k > 14 "
+                         "extends past anything Phase 3 ran. (default: %(default)s)")
+    ap.add_argument("--sweep-seed", type=int, default=SWEEP_SEED,
+                    help="seed threaded through the sampler (z0 AND corrector noise, unless --z0-seed "
+                         "is given). Default %(default)s is Phase 3's, so z0 is IDENTICAL to its sweep.")
+    ap.add_argument("--z0-seed", type=int, default=None,
+                    help="if set, draw z0 from THIS seed and let --sweep-seed vary only the corrector "
+                         "noise. Running 3 jobs with the same --z0-seed and different --sweep-seed "
+                         "measures PC's within-seed (Langevin) variance, which Phase 3 structurally does "
+                         "not have and which is what sizes the seed replication.")
+    ap.add_argument("--corrector-steps", type=int, default=CORRECTOR_STEPS,
+                    help="ULA steps per ODE step (default: %(default)s). Ignored by the flow_guided arm.")
+    ap.add_argument("--snr", type=float, default=SNR,
+                    help="Langevin SNR (default: %(default)s, Song et al. 2021).")
+    ap.add_argument("--eta-reference", choices=("total", "score"), default=ETA_REFERENCE,
+                    help="'total' (default) divides eta by ||s + lam*g~||, which anneals the corrector's "
+                         "step as ~1/(1+lam) -- measured 12x weaker at lam=5.5 than at lam=0.79. 'score' "
+                         "divides by ||s|| alone, so eta is lam-independent and lam only ROTATES the "
+                         "drift; use it to tell a real high-lam null apart from the corrector having "
+                         "annealed itself off.")
+    ap.add_argument("--skip-preflight", action="store_true",
+                    help="skip the tier-1 on-hardware checks (~4 min). Only for a resumed job whose "
+                         "earlier attempt already logged them all PASS.")
+    args = ap.parse_args()
+
+    CORRECTOR_STEPS = args.corrector_steps
+    SNR = args.snr
+    ETA_REFERENCE = args.eta_reference
+    N_STEPS = args.n_steps
+    lam_k = [int(k) for k in args.lam_k.split(",") if k.strip() != ""]
+    LAM_GRID = [k * LAM_STEP for k in lam_k]
+
+    # The results key encodes EVERY axis a wave varies. Without this, two jobs differing only in
+    # --corrector-steps or --sweep-seed write to the same file: the stamp check would .stale-rename
+    # rather than corrupt, but each job would keep discarding the other's work. Same lesson as
+    # CLAUDE.md's "bump RUN_TAG per leg -- an untagged leg overwrites its own resume source".
+    key = (f"{args.arm}_n{N_STEPS}_c{CORRECTOR_STEPS}_eta{ETA_REFERENCE}"
+           f"_snr{SNR:g}_s{args.sweep_seed}"
+           + (f"_z{args.z0_seed}" if args.z0_seed is not None else "")
+           + (f"_{args.tag}" if args.tag else "")
+           + (".dryrun" if args.dry_run else ""))
+    RESULTS = os.path.join(HERE, f"pc_sweep_results_{key}.json")
+    DECODED_DIR = os.path.join(HERE, f"pc_decoded_{key}")
+    if args.dry_run and os.path.exists(RESULTS):
+        os.remove(RESULTS)
+    note(f"results -> {os.path.basename(RESULTS)}")
+
+    S = dry_setup() if args.dry_run else flux_setup()
+    note(f"setup ready: arm={args.arm} d={S.d} device={S.device} lambda_s={S.lam_s:.2f} "
+         f"n_steps={N_STEPS} corr_steps={CORRECTOR_STEPS} snr={SNR} eta_ref={ETA_REFERENCE} "
+         f"lam_k={lam_k} z0_seed={args.z0_seed}")
+
+    pf: dict[str, Any] = {}
+    if not args.skip_preflight:
+        pf = preflight(S, args.sweep_seed, dry_run=args.dry_run)
+
+    res = load_results({
+        **S.stamp, "arm": args.arm, "n_particles": N_PARTICLES, "n_steps_ode": N_STEPS,
+        "lambda_s": S.lam_s, "lam_k": lam_k, "lam_grid": LAM_GRID, "sweep_seed": args.sweep_seed,
+        "z0_seed": args.z0_seed, "corrector_steps": CORRECTOR_STEPS, "snr": SNR,
+        "eta_reference": ETA_REFERENCE, "exact_jacobian": EXACT_JACOBIAN,
+        "preflight": {k: v for k, v in pf.items() if k != "score_xval_s"},
+    })
+    for idx, lam in enumerate(LAM_GRID):
+        run_one(S, args.arm, idx, lam, res, args.sweep_seed, args.z0_seed)
+
+    note("done")
+    print(f"\narm={args.arm}  corr_steps={CORRECTOR_STEPS}  snr={SNR}  eta_ref={ETA_REFERENCE}")
+    print(f"{'idx':>4s} {'m':>7s} {'lam':>8s} {'f_mean':>12s} {'|x|/sqrt d':>11s} {'hf_frac':>8s} "
+          f"{'eta':>10s} {'disp':>8s} {'noisefrac':>10s} {'t(s)':>8s} {'oom':>4s}")
+    for idx, lam in enumerate(LAM_GRID):
+        key = f"idx{idx:02d}_lam{lam:.4f}"
+        if key not in res:
+            print(f"{idx:>4d}  (missing)")
+            continue
+        r = res[key]
+        print(f"{idx:>4d} {r['m']:>7.3f} {r['lam']:>8.2f} {r['f_mean']:>12.4f} "
+              f"{r['x_norm_final']:>11.4f} {r['hf_frac']:>8.4f} {r['corrector_eta_mean']:>10.3g} "
+              f"{r['corrector_rel_disp_mean']:>8.3g} {r['corrector_noise_frac_mean']:>10.3f} "
+              f"{r['t_sample_s']:>8.1f} {'Y' if r['oom_fallback_any'] else '-':>4s}")
+
+
+if __name__ == "__main__":
+    main()

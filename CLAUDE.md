@@ -38,6 +38,17 @@ Everything else (distances, refsets, generators) is fixed infrastructure that an
   no tempering ladder, no particles, no resampling; a single guided forward pass. Needs a `differentiable=True` denoiser/velocity function conforming to
   `GuidableVelocityFn`; FLUX.1-dev is currently its only backend, via `generators/flux.py`'s `flux_edm_denoiser`/`flux_velocity_fn`/`build_flux_guidance`.
   See Invariant 2's exception below, and "Adding a New Flow-Matching Backend" further down.
+- **`flow_guided_pc_sample`** (`flow_guided_pc.py`) — Phase 5, the **predictor-corrector** sampler and the second gradient-using one.
+  Interleaves `flow_guided`'s Euler step (the *same* `guided_euler_step`, shared via `flow_guided_common.py` — not a copy) with $M$ steps of
+  **Unadjusted Langevin** at each arrival node $t$, targeting $q_{t}(x) \propto p_{t}(x)\exp(\lambda r(\hat x_{0}(x_{t})))$. Its drift carries the
+  model's own marginal score, obtained from the velocity by the exact reparametrization $s_{\theta} = -(x_{t} + (1-t)v_{\theta})/t$, so the score term
+  re-equilibrates the particle onto $p_{t}$ after each nudge — the structural consistency Phase 3 loses past $\lambda \approx 3.93$.
+  Step size is Song et al. 2021's dynamic SNR rule ($\text{snr} = 0.16$). **`corrector_steps=0` reduces it to `flow_guided_sample` bitwise**
+  (asserted in `tests/test_flow_guided_pc.py` at $\lambda = 0$ and $\lambda \neq 0$, both Jacobian modes, and re-asserted on-GPU by every sweep job),
+  which is what makes a {PC-guided, PC-unguided, Phase 3} comparison apples-to-apples inside one job. Backend-agnostic, same `VelocityFn` contract.
+  Two headline knobs: `predictor_guided` (True = strict superset of Phase 3; False = all tilt from the corrector) and `eta_reference`
+  (`"total"`, default, anneals the step as $\approx 1/(1+\lambda)$; `"score"` decouples it). See `notebooks/iid_iem_flux_check/ROADMAP.md` Phase 5
+  for the full derivation, the identity-Jacobian caveat, and the sweep design.
 - **More samplers are expected.** Adding one is a first-class contribution, not a refactor.
 
 ## Invariants Every Sampler Must Respect
@@ -50,6 +61,11 @@ Everything else (distances, refsets, generators) is fixed infrastructure that an
    model's own generative ODE with the reward's gradient instead of reweighting/rejuvenating. It requires a `differentiable=True` denoiser/velocity function and explicitly
    freezes every model parameter (`requires_grad_(False)`) before building any autograd graph through it, so this exception never silently reaches the frozen
    reward's weights or an unrelated sampler.
+   **Exception: `flow_guided_pc_sample`** (Phase 5) goes one step further — it uses $\nabla f$ *and* $\nabla \log p_{t}$, the latter as the model's own marginal score
+   $s_{\theta} = -(x_{t} + (1-t)v_{\theta})/t$, which is the Langevin corrector's whole point. Note what this does and does not relax: there is **no acceptance ratio
+   here at all** (ULA is *unadjusted*), so the clause about $\log p$ in an acceptance ratio is not being bent — no $\log p$ is ever evaluated, only its gradient, and
+   `log_p_X` / `grid_normalize` / `tilted_log_density` remain 2D-toy-only as before. The price is an $O(\eta)$ discretization bias instead of exactness, controlled by
+   `snr`; it obeys the same freeze guard (`require_frozen_module`) as Phase 3.
 3. **The 2D-toy-only version can be used as a reference for 2D tests, but is not ground-truth.** The 2D-toy-only sampler fails at strongs tilts and drifts off the grid,
    and therefore is not achieving the goal.
 3. **Determinism via a threaded generator.** All randomness comes from a single `torch.Generator(seed)` passed through; never touch global torch RNG.
@@ -168,8 +184,12 @@ Rules are general; the pCN parentheticals are Algorithm 1, the only sampler with
   see Established Findings and `notebooks/refset_auto_r/`.
 - `generators/` — $G: z \mapsto x$ via the EDM probability-flow ODE, so $G(N(0,I)) \approx p$ (`toy_2d`, `edm_pixel`, `tiny_sd`, `flux`).
 - `tilt.py` — rewards; `density.py` — $p$ as `log_p_X` / `log_p_Y` / sampler.
-- `samplers/` — the sampler modules themselves (Algs 1-3, `flow_guided`, `smc_common.py`'s shared SMC
-  infrastructure) — see "Current samplers" above for the full list and "Adding a New Sampler" for the
+- `samplers/` — the sampler modules themselves (Algs 1-3, `flow_guided`, `flow_guided_pc`, plus two
+  non-public shared-infrastructure modules: `smc_common.py` for the SMC family, and
+  `flow_guided_common.py` for the gradient-guidance family — `guided_euler_step`, `_reward_grad`,
+  `_shifted_schedule`, `require_frozen_module`, which `flow_guided` and `flow_guided_pc` must agree on
+  *exactly*, since their bitwise reduction depends on sharing one implementation rather than two copies)
+  — see "Current samplers" above for the full list and "Adding a New Sampler" for the
   convention. `flowmap_smc.py` also records, all side-effect-free (bit-identical runs, asserted by
   `test_recording_flags_leave_the_run_bit_identical`): `record_r_k` (keeps $(M, K)$ lookahead rewards,
   so any $K' \le K$ is reconstructible offline by subsetting), `project_endpoint` (per-step $E_{q}[f]$
