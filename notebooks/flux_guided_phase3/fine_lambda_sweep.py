@@ -225,7 +225,7 @@ def note(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}  (host peak RSS {rss:.1f} GB)", flush=True)
 
 
-def run_one(S: Setup, idx: int, lam: float, res: dict) -> None:
+def run_one(S: Setup, idx: int, lam: float, res: dict, sweep_seed: int) -> None:
     key = f"idx{idx:02d}_lam{lam:.4f}"
     if key in res:
         note(f"{key} already done: f={res[key]['f_mean']:.5f}, t={res[key]['t_guidance_s']:.1f}s")
@@ -233,7 +233,7 @@ def run_one(S: Setup, idx: int, lam: float, res: dict) -> None:
     t0 = time.time()
     result = flow_guided_sample(
         S.reward, lam, N_PARTICLES, velocity_fn=S.velocity_fn, n_steps=N_STEPS_ODE, shift=SHIFT,
-        t_start=1.0, t_end=0.0, exact_jacobian=True, seed=SWEEP_SEED,
+        t_start=1.0, t_end=0.0, exact_jacobian=True, seed=sweep_seed,
     )
     t_guidance = time.time() - t0
     with torch.no_grad():
@@ -273,14 +273,22 @@ def main() -> None:
     ap.add_argument("--tag", type=str, default=None,
                      help="suffix for the results JSON / decoded dir, so a zoomed-in sweep doesn't "
                           "overwrite a previous range's results. Defaults to the lam-max value.")
+    ap.add_argument("--n-lambdas", type=int, default=N_LAMBDAS,
+                     help="number of lambda points uniform in [0, lam-max] (default: %(default)s).")
+    ap.add_argument("--sweep-seed", type=int, default=SWEEP_SEED,
+                     help="seed for the SAME-z0-across-the-sweep initial noise (default: %(default)s). "
+                          "Vary this (holding everything else fixed) to repeat the sweep on a different "
+                          "random draw.")
     args = ap.parse_args()
     global RESULTS, DECODED_DIR
+    n_lambdas = args.n_lambdas
+    sweep_seed = args.sweep_seed
     if args.dry_run:
         RESULTS = os.path.join(HERE, "fine_lambda_sweep_results.dryrun.json")
         DECODED_DIR = os.path.join(HERE, "fine_decoded_dryrun")
         if os.path.exists(RESULTS):
             os.remove(RESULTS)
-    elif args.lam_max is not None:
+    elif args.lam_max is not None or args.tag is not None:
         tag = args.tag if args.tag is not None else f"max{args.lam_max:g}"
         RESULTS = os.path.join(HERE, f"fine_lambda_sweep_results_{tag}.json")
         DECODED_DIR = os.path.join(HERE, f"fine_decoded_{tag}")
@@ -288,13 +296,13 @@ def main() -> None:
     S = dry_setup() if args.dry_run else flux_setup()
     note(f"setup ready: d={S.d}, device={S.device}, lambda_s={S.lam_s:.2f}")
     lam_max = args.lam_max if args.lam_max is not None else S.lam_s
-    lambdas = torch.linspace(0.0, lam_max, N_LAMBDAS).tolist()
+    lambdas = torch.linspace(0.0, lam_max, n_lambdas).tolist()
 
     res = load_results({**S.stamp, "n_particles": N_PARTICLES, "n_steps_ode": N_STEPS_ODE,
-                        "n_lambdas": N_LAMBDAS, "lambda_s": S.lam_s, "lam_max": lam_max,
-                        "sweep_seed": SWEEP_SEED})
+                        "n_lambdas": n_lambdas, "lambda_s": S.lam_s, "lam_max": lam_max,
+                        "sweep_seed": sweep_seed})
     for idx, lam in enumerate(lambdas):
-        run_one(S, idx, lam, res)
+        run_one(S, idx, lam, res, sweep_seed)
 
     note("done")
     print(f"\n{'idx':>4s} {'m':>7s} {'lam':>8s} {'f_mean':>12s} {'f_sd':>10s} {'t_guid(s)':>10s} {'oom':>4s}")
