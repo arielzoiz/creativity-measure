@@ -34,8 +34,10 @@ way; five image reads reversed two conclusions. Specifically:
   - `x_norm_final` is ANTI-correlated with quality here: the destroyed n_steps=19 image measures 2.88
     against the intact PC image's 3.90. Do NOT read low ||x|| as "on-manifold". It is recorded because it
     is worth having, not because it is a quality proxy.
-  - `hf_frac` (spectral power above 0.25 Nyquist) DID track recognizability at every comparison -- lower
-    is more intact. It is the scalar to trust, and only as a cross-arm comparison at matched lam.
+  - `hf_frac` (spectral power above 0.25 Nyquist) is the LEAST bad scalar, but it is not a predictor
+    either: it ranks arms sensibly within one seed at one lam, yet has no absolute threshold across
+    seeds -- seed 1234 scores 0.0089 on a recognizable dog at lam=1.571 while seed 3141 scores 0.0093 on
+    a destroyed mosaic. Use it only as a within-comparison ranking, never as "below X means intact".
   - `n_steps` must be MATCHED across arms. Raising it does not merely cost more compute, it destroys
     guidance (n_steps=19 is abstract blocks at lam=1.571 where n_steps=10 is a recognizable dog), so it
     cannot be used to build a compute-matched control.
