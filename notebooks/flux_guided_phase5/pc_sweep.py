@@ -156,15 +156,39 @@ def hf_power_fraction(img: Tensor, cutoff: float = 0.25) -> float:
 # Results file (atomic, resumable per lambda) -- same convention as Phase 3's fine_lambda_sweep.py
 # =====================================================================================================
 
+# Stamp fields that must match for two runs to count as "the same sweep" for resume/merge purposes.
+# Deliberately EXCLUDES:
+#   - lam_k / lam_grid: which lattice points THIS invocation asked for, not what any point means. A job
+#     requesting a different subset of the same lattice (e.g. filling in the points an earlier job
+#     skipped) must merge into the existing file, not discard it -- this is the exact failure that cost a
+#     full C=1 re-run across 5 seeds in the corrector_steps sweep (2026-10-03, see NEXT_SESSION.md).
+#   - preflight: a fresh on-hardware measurement every run, and PARTLY NONDETERMINISTIC by construction
+#     (nondet_floor_lam1 / reduction_cross_lam1 -- CLAUDE.md: FLUX's backward is not bit-reproducible on
+#     GPU). Requiring it to match means resume would almost never fire, even for a literal rerun of
+#     identical args.
+_VOLATILE_STAMP_KEYS = ("lam_k", "lam_grid", "preflight")
+
+
+def _stamp_identity(stamp: dict) -> dict:
+    return {k: v for k, v in stamp.items() if k not in _VOLATILE_STAMP_KEYS}
+
+
 def load_results(stamp: dict) -> dict:
     if os.path.exists(RESULTS):
         with open(RESULTS) as fh:
             old = json.load(fh)
-        if old.get("stamp") == stamp:
+        old_stamp = old.get("stamp", {})
+        if _stamp_identity(old_stamp) == _stamp_identity(stamp):
+            # Merge: the file's lam_k/lam_grid become the union of what it already had and what this
+            # run asked for. Per-point keys are addressed by lattice index (see run_one), so merged
+            # entries from different --lam-k subsets never collide.
+            merged_lam_k = sorted(set(old_stamp.get("lam_k", [])) | set(stamp.get("lam_k", [])))
+            old["stamp"] = {**stamp, "lam_k": merged_lam_k,
+                             "lam_grid": [k * LAM_STEP for k in merged_lam_k]}
             print(f"[resume] {RESULTS}: {sorted(k for k in old if k != 'stamp')}")
             return old
         os.replace(RESULTS, RESULTS + ".stale")
-        print("[resume] stamp mismatch -> old results moved to .stale, starting fresh")
+        print("[resume] stamp mismatch on identity fields -> old results moved to .stale, starting fresh")
     return {"stamp": stamp}
 
 
@@ -394,6 +418,9 @@ def _z0_for(S: Setup, z0_seed: int) -> Tensor:
 
 def run_one(S: Setup, arm: str, idx: int, lam: float, res: dict, sweep_seed: int,
             z0_seed: int | None) -> None:
+    # Keyed by the LATTICE index (idx == k from --lam-k), not this job's own positional enumerate()
+    # index -- so the same lambda always lands on the same key no matter which subset of the lattice a
+    # given job requested, and merged entries from different --lam-k invocations never collide.
     key = f"idx{idx:02d}_lam{lam:.4f}"
     if key in res:
         note(f"{key} already done: f={res[key]['f_mean']:.5f}, t={res[key]['t_sample_s']:.1f}s")
@@ -535,20 +562,20 @@ def main() -> None:
         "eta_reference": ETA_REFERENCE, "exact_jacobian": EXACT_JACOBIAN,
         "preflight": {k: v for k, v in pf.items() if k != "score_xval_s"},
     })
-    for idx, lam in enumerate(LAM_GRID):
-        run_one(S, args.arm, idx, lam, res, args.sweep_seed, args.z0_seed)
+    for k, lam in zip(lam_k, LAM_GRID):
+        run_one(S, args.arm, k, lam, res, args.sweep_seed, args.z0_seed)
 
     note("done")
     print(f"\narm={args.arm}  corr_steps={CORRECTOR_STEPS}  snr={SNR}  eta_ref={ETA_REFERENCE}")
     print(f"{'idx':>4s} {'m':>7s} {'lam':>8s} {'f_mean':>12s} {'|x|/sqrt d':>11s} {'hf_frac':>8s} "
           f"{'eta':>10s} {'disp':>8s} {'noisefrac':>10s} {'t(s)':>8s} {'oom':>4s}")
-    for idx, lam in enumerate(LAM_GRID):
-        key = f"idx{idx:02d}_lam{lam:.4f}"
+    for k, lam in zip(lam_k, LAM_GRID):
+        key = f"idx{k:02d}_lam{lam:.4f}"
         if key not in res:
-            print(f"{idx:>4d}  (missing)")
+            print(f"{k:>4d}  (missing)")
             continue
         r = res[key]
-        print(f"{idx:>4d} {r['m']:>7.3f} {r['lam']:>8.2f} {r['f_mean']:>12.4f} "
+        print(f"{k:>4d} {r['m']:>7.3f} {r['lam']:>8.2f} {r['f_mean']:>12.4f} "
               f"{r['x_norm_final']:>11.4f} {r['hf_frac']:>8.4f} {r['corrector_eta_mean']:>10.3g} "
               f"{r['corrector_rel_disp_mean']:>8.3g} {r['corrector_noise_frac_mean']:>10.3f} "
               f"{r['t_sample_s']:>8.1f} {'Y' if r['oom_fallback_any'] else '-':>4s}")
