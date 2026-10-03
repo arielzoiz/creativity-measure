@@ -95,8 +95,19 @@ Interpolant: `x_t = (1-t) x_0 + t eps`, hence `v = eps - x_0` and `x_t = x_0 + t
    (job 967143: f 429.3 vs 440.8, ||x|| 18.39 vs 18.72) with `disp` collapsed to 0.0099.
 
    `eta_reference="score"` removes the cap: `eta ~ 1/||s||^2` is lam-independent, so the reward
-   displacement goes as `lam` with no peak. If the corrector is to tilt at all at the lambdas this phase
-   cares about, that is the setting it must use.
+   displacement goes as `lam` with no peak.
+
+   **BUT KEEP THE DEFAULT. GPU-measured (job 967954), `eta_reference="score"` is STRICTLY WORSE in the
+   only lambda range where images survive.** At seed 1234, lam=2.357: `"total"` gives a clear cartoon dog
+   at f=57.2, while `"score"` gives formless blobs at f=67.5 -- +18% novelty, structure gone. The cause is
+   visible in the recorded `noise_frac`: under `"score"` it is `~1/(snr(1+lam))`, so it collapses from
+   6.25 toward 1 as lam grows (measured 0.896 at lam=7.86, 1.008 / 1.151 / 1.338 / 2.565 / 3.787 at
+   7.07 / 6.29 / 5.5 / 3.14 / 2.36). Once it passes ~1 the step is DRIFT-dominated and the corrector has
+   stopped being a Langevin sampler at all -- it is approximate gradient ascent, and it ascends r straight
+   off the manifold. Lifting the cap does not buy reach; it buys a bigger number for a destroyed image.
+
+   The cap is therefore not a defect to be engineered away. `"score"` remains exposed because measuring
+   it is how the above was established, not because it is a setting to prefer.
 
 6. Corrector loop (ULA). For `j = 0 .. corrector_steps-1` at fixed `t`, with `z^(j) ~ N(0, I)`:
 

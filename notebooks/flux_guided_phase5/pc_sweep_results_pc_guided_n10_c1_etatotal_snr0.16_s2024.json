@@ -91,5 +91,28 @@
     "oom_fallback_any": true,
     "t_sample_s": 1090.5045745372772,
     "png": "/home/dcor/arielzoizner/projects/creativity-measure/notebooks/flux_guided_phase5/pc_decoded_pc_guided_n10_c1_etatotal_snr0.16_s2024/idx01_lam1.9643.png"
+  },
+  "idx02_lam2.3571": {
+    "arm": "pc_guided",
+    "idx": 2,
+    "lam": 2.357142857142857,
+    "m": 0.029094806273600886,
+    "f_mean": 46.32819747924805,
+    "f_std": NaN,
+    "applied_norm_mean": 1226.5970031738282,
+    "v_norm_mean": 520.3744659423828,
+    "corrector_nodes": 9,
+    "corrector_eta_mean": 0.004249423704297644,
+    "corrector_rel_disp_mean": 0.06440840369193918,
+    "corrector_score_norm_mean": 1174.5298902723525,
+    "corrector_drift_norm_mean": 1924.507859971788,
+    "corrector_noise_frac_mean": 6.2500002649095325,
+    "x_norm_final": 5.225426197052002,
+    "hf_frac": 0.0816736783515871,
+    "n_velocity_evals": 19,
+    "n_reward_grads": 19,
+    "oom_fallback_any": true,
+    "t_sample_s": 1089.242805480957,
+    "png": "/home/dcor/arielzoizner/projects/creativity-measure/notebooks/flux_guided_phase5/pc_decoded_pc_guided_n10_c1_etatotal_snr0.16_s2024/idx02_lam2.3571.png"
   }
 }
