@@ -78,6 +78,26 @@ Interpolant: `x_t = (1-t) x_0 + t eps`, hence `v = eps - x_0` and `x_t = x_0 + t
    and it also means `lam` and `snr` are coupled: to hold the corrector's displacement fixed while
    raising `lam`, raise `snr` by roughly `(1 + lam)`. `eta_reference="score"` decouples them.
 
+   **AND IT CAPS THE CORRECTOR'S ACHIEVABLE TILT, at lam = 1.** This is stronger than "the step shrinks"
+   and it was not anticipated when the knob was written; it is a hard limit, not a tuning inconvenience.
+   The displacement in the REWARD direction per corrector step is `eta * lam * ||g_tilde||`, and with
+   `||g_tilde|| = ||s||` and `eta = 2 (snr ||z||)^2 / ||g_total||^2`:
+
+       reward displacement  =  2 (snr ||z||)^2 * lam / ((1 + lam)^2 ||s||)   ~   lam / (1 + lam)^2
+
+       d/dlam [ lam / (1+lam)^2 ]  =  (1 - lam) / (1 + lam)^3   ->   zero at lam = 1, negative after
+
+   So under `eta_reference="total"` the corrector's tilting power PEAKS at `lam = 1` and *decays* for
+   larger `lam`. GPU-measured exactly (wave 1, job 966659, `predictor_guided=False` so the corrector is
+   the only source of tilt): f = 0.9011 at lam=0, then 0.9702 at lam=0.79 and 0.9699 at lam=1.57 -- two
+   points straddling lam=1, both pinned at the peak, flat to the fourth decimal. The same mechanism
+   explains why `corrector_steps=2` at lam=7.07 reproduced the plain Phase 3 baseline to within noise
+   (job 967143: f 429.3 vs 440.8, ||x|| 18.39 vs 18.72) with `disp` collapsed to 0.0099.
+
+   `eta_reference="score"` removes the cap: `eta ~ 1/||s||^2` is lam-independent, so the reward
+   displacement goes as `lam` with no peak. If the corrector is to tilt at all at the lambdas this phase
+   cares about, that is the setting it must use.
+
 6. Corrector loop (ULA). For `j = 0 .. corrector_steps-1` at fixed `t`, with `z^(j) ~ N(0, I)`:
 
        x^(j+1) = x^(j) + eta_t^(j) * g_total(x^(j), t) + sqrt(2 eta_t^(j)) * z^(j)
