@@ -33,7 +33,7 @@ regime and don't extrapolate. Both outcomes are publishable; the point is that n
 ## What to run
 
 10 jobs: C ∈ {2, 4} × seeds {1234, 2024, 3141, 4242, 5555}, at λ-lattice indices 1,2,3,4
-(λ = 0.393 / 0.786 / 1.179 / 1.571).
+(λ = 0.393 / 0.786 / 1.179 / 1.571 / 1.964 / 2.357).
 
 ```bash
 cd /home/dcor/arielzoizner/projects/creativity-measure/notebooks/flux_guided_phase5
