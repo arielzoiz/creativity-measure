@@ -14,7 +14,7 @@ its own module (like `smc_common.py`) or a subclass in a new file. Per-stage res
 | 2 | Autograd + memory stress test on FLUX | **DONE — GPU-verified (job 957385): single backward through the full transformer works (needed gradient checkpointing, see below); double-backward hits a real hardware ceiling at full scale (expected, unused by production); OOM-fallback exactness confirmed (max diff 2.46e-4).** |
 | 3 | Direct test-time guidance | **DONE — GPU-verified end to end (job 957386): f rises monotonically with lambda in both Jacobian modes on real FLUX.1-dev, lam=0 bitwise parity holds on real hardware too.** |
 | 4 | Standalone Langevin (ULA) MCMC | **SKIPPED (2026-10-02)** — standalone ULA at $t=1$ is structurally uninformative; its mechanism is subsumed by Phase 5's corrector, which runs the same ULA drift at every $t$ with the base process still supplying structure. |
-| 5 | Predictor-corrector (Langevin) sampler | **IMPLEMENTED, CPU-verified (55 tests, `tests/test_flow_guided_pc.py`); GPU sweep NOT YET SUBMITTED.** `creativity_measure/samplers/flow_guided_pc.py`, driver `notebooks/flux_guided_phase5/`. |
+| 5 | Predictor-corrector (Langevin) sampler | **DONE — GPU-verified over 5 seeds, ~25 GPU-h.** Novelty gain REPLICATES (+31% mean at lam=0.79, +38% at 1.18, 5/5 seeds, recognizability preserved 4/5); window extension does NOT (1 seed supports, 1 contradicts — seed 1234 was a favourable draw). `creativity_measure/samplers/flow_guided_pc.py`, driver `notebooks/flux_guided_phase5/`. |
 | 6 | Generation quality vs compute cost | NOT STARTED |
 
 ## Phase 1 — DONE locally, verification PENDING on the cluster
@@ -365,7 +365,33 @@ was wrong. Submissions are still staggered, but as risk-spreading across nodes r
 nine left Slurm's backfill unable to slot them with 106 pending vs 88 running — estimated starts ran to the next
 day, and resubmitting the identical jobs with `--time` matched to their work started all nine within 30 min.
 
-### Wave 1 result (seed 1234) — the hypothesis is SUPPORTED, but only the images show it
+### FINAL RESULT (waves 1+2, 5 seeds, ~25 GPU-h) — the hypothesis splits in two
+
+**Supported: more novelty at preserved recognizability. NOT supported: a later breakdown point.**
+
+At a $\lambda$ where guidance still works for a given seed, the corrector delivers substantially more
+novelty at comparable recognizability, and this replicates on every seed tested:
+
+| $\lambda$ | 1234 | 2024 | 3141 | 4242 | 5555 | mean |
+|---|---|---|---|---|---|---|
+| 0.79, $\Delta f$ vs Phase 3 | +38.6% | +21.6% | +38.2% | +13.7% | +43.2% | **+31%** |
+| 1.18, $\Delta f$ vs Phase 3 | — | +14.2% | +57.6% | +47.1% | +33.9% | **+38%** |
+
+all far above the 3.7% within-seed noise floor, and at $\lambda = 0.79$ four of five PC images are cleanly
+recognizable dogs (the fifth is a judgment call). The restyles are **diverse** — flat silhouette, etched
+scratchboard, neon line-art, pop-art, ink cartoon — not one fixed off-manifold attractor.
+
+**But the window does not move.** Wave 1's headline was seed 1234 at $\lambda = 2.357$, where PC is still
+clearly a dog and Phase 3 has degraded to a pictograph. Across the other four seeds at their own
+transitions ($\lambda = 1.18$): seed 2024 both intact; seed 3141 both destroyed; seed 5555 both marginal;
+and **seed 4242 PC is destroyed — it renders the digits "97" — while the control still shows a creature
+face**, i.e. PC is *worse*. One seed supports extension, one contradicts it, two are neutral. **Seed 1234
+was a favourable draw**, which is precisely what a single $z_{0}$ cannot reveal.
+
+So the corrector is worth its 1.9$\times$ compute if what you want is more novelty at a working $\lambda$,
+and is not a way to push $\lambda$ higher.
+
+### Wave 1 result (seed 1234) — what the single-seed run showed, before replication
 
 **Read the images, not the scalars.** The decisive comparison is at matched $\lambda$ and matched `n_steps=10`,
 differing only by the corrector:
