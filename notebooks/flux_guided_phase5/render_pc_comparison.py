@@ -277,6 +277,97 @@ def main() -> None:
         print("off-manifold attractor -- in which case the corrector is not the mechanism and the")
         print("premise of Phase 5 needs rewriting. Confirm against the images before concluding.")
 
+    # --- the TILT-vs-OFF-MANIFOLD FRONTIER, which is the comparison that actually decides -----------
+    #
+    # Matched-lambda tables ask "which arm tilts harder at this lambda", and pc_guided wins that by
+    # construction: its corrector drift is s + lam*g~ with ||g~|| == ||s||, so at lam > 1 the drift is
+    # reward-DOMINATED and each corrector step pushes further up r. (The early framing of the corrector as
+    # "pulling back toward p_t" was wrong -- it pulls toward q_t ~ p_t exp(lam r), which at any meaningful
+    # lambda is itself off-manifold.) Measured at matched compute, lam=1.57: pc_guided reached f=23.48 vs
+    # the control's 14.47, but with ||x||/sqrt(d) 3.90 vs 2.88 -- MORE inflation, not less.
+    #
+    # So the arms sit on a monotone tilt-vs-inflation tradeoff and the useful question is whether any arm
+    # shifts the FRONTIER: at matched f, does it reach it with lower ||x|| (and lower hf)? That is what
+    # this table answers, by interpolating each arm's ||x|| and hf onto a common f grid. An arm that
+    # dominates here is genuinely better; an arm that merely sits further along the same curve is just
+    # tilting harder, which costs nothing but lambda.
+    print("\n" + "=" * 100)
+    print("TILT-vs-OFF-MANIFOLD FRONTIER -- ||x||/sqrt(d) and hf at MATCHED f (linear interp in log f).")
+    print("Lower ||x|| at the same f is better. An arm absent from a row does not reach that f.")
+    print("=" * 100)
+
+    def interp(xs: list[float], ys: list[float], x: float) -> float | None:
+        """y at x by linear interpolation on sorted (xs, ys); None outside the measured range."""
+        if len(xs) < 2 or not (min(xs) <= x <= max(xs)):
+            return None
+        for i in range(len(xs) - 1):
+            if xs[i] <= x <= xs[i + 1]:
+                if xs[i + 1] == xs[i]:
+                    return ys[i]
+                w = (x - xs[i]) / (xs[i + 1] - xs[i])
+                return ys[i] * (1 - w) + ys[i + 1] * w
+        return None
+
+    def short(lab: str) -> str:
+        """Distinguishing label. Naive truncation collides: every pc_guided variant becomes 'pc_guided',
+        and 'pc_guided c1 z0=1234/s101' vs '.../s202' both cut to the same 15 chars -- so the seed, which
+        is the ONLY thing distinguishing the within-seed replicates, has to survive."""
+        import re as _re
+        s = (lab.replace("pc_unguided", "unguid").replace("pc_guided", "guid")
+                .replace("flow_guided", "ctrl").replace("eta=", "").replace("phase 3 ", "p3")
+                .replace(" (stored)", "").replace("max5.5", ""))
+        return _re.sub(r"z0=\d+/", "z0/", s)[:15]
+
+    curves: list[tuple[str, list[float], list[float], list[float]]] = []
+    for lab, res, _ddir in loaded:
+        trips: list[tuple[float, float, float]] = []
+        for k, v in res.items():
+            if k == "stamp":
+                continue
+            xv = v.get("x_norm_final")
+            if xv is None or xv != xv:          # absent or nan: Phase 3's stored run never recorded it
+                continue
+            trips.append((float(v["f_mean"]), float(xv), _hf_frac(v, None)))
+        trips.sort(key=lambda p: p[0])
+        if len(trips) >= 2:
+            curves.append((lab, [p[0] for p in trips], [p[1] for p in trips], [p[2] for p in trips]))
+
+    if not curves:
+        print("(need >=2 points with x_norm per arm; Phase 3's stored run never recorded it)")
+    else:
+        print("per-arm f range measured so far:")
+        for lab, fs, _, _ in curves:
+            print(f"  {short(lab):>16s}  f in [{min(fs):9.3f}, {max(fs):9.3f}]  ({len(fs)} pts)")
+        # Define the common range from the FULL-GRID arms only. A deliberately narrow arm (the baseline
+        # extension at 3 high lambdas, an ablation at 2 points, a within-seed replicate) would otherwise
+        # collapse the overlap to nothing and hide the comparison the full arms can actually support.
+        # Narrow arms still appear as columns; they read "--" outside their own measured range.
+        widest = max(len(c[1]) for c in curves)
+        main = [c for c in curves if len(c[1]) >= max(4, widest // 2)] or curves
+        lo = max(min(c[1]) for c in main)
+        hi = min(max(c[1]) for c in main)
+        if len(main) < len(curves):
+            print(f"  (common range set by the {len(main)} full-grid arms; "
+                  f"{len(curves) - len(main)} narrow arms shown but not range-limiting)")
+        if hi <= lo:
+            print(f"\nNO COMMON f RANGE yet (need max-of-mins {lo:.3f} < min-of-maxes {hi:.3f}).")
+            print("Arms covering disjoint lambda ranges cannot be compared on the frontier until their")
+            print("f ranges overlap -- expected once each arm's grid fills in.")
+        else:
+            print(f"\n{'target f':>10s} " + " ".join(f"{short(c[0]):>15s}" for c in curves))
+            print(f"{'':>10s} " + " ".join(f"{'|x| / hf':>15s}" for _ in curves))
+            n_rows = 8
+            for i in range(n_rows):
+                t = lo * (hi / lo) ** (i / (n_rows - 1))      # geometric, f spans orders of magnitude
+                cells = []
+                for _, fs, xn, hfs in curves:
+                    x, h = interp(fs, xn, t), interp(fs, hfs, t)
+                    cells.append("%15s" % "--" if x is None
+                                 else "%7.3f /%6.4f" % (x, h if h is not None else float("nan")))
+                print(f"{t:>10.3f} " + " ".join(cells))
+            print("\n(overlap region only: f in [%.3f, %.3f], where every arm has measurements)"
+                  % (lo, hi))
+
     # --- within-seed (corrector-noise) variance, which sizes the seed replication -----------------
     fixed = [(lab, res) for lab, res, _ in loaded if res.get("stamp", {}).get("z0_seed") is not None]
     if len(fixed) >= 2:
