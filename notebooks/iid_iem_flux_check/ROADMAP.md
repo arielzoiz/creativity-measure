@@ -356,10 +356,14 @@ still raises — that would be a real defect.
 
 **Infrastructure measured in passing** (all folded into `pc_sweep.slurm` / `submit_wave1.sh`): setup is
 **NFS-bound, not GPU-bound** — the 32 GB of mmap'd safetensors page in at **~5 MB/s** (process in state `Dl` on
-`folio_wait_bit_common`, `read_bytes` climbing 50 MB/10 s), making setup 35–90 min; `killable` allows **24 h**, so
-Phase 3's self-imposed `--time=360` was raised to 720 because every requeue re-pays that setup; and
-**co-locating jobs hurts** — the five that landed on n-801 were still loading when the two placed alone elsewhere
-had finished setup, so submissions are now staggered.
+`folio_wait_bit_common`), at measured rates of **5–12 MB/s**, making setup 19–55+ min. The driver is the node's
+**total I/O contention across all tenants**, not co-location of one's own jobs: on the relaunch, setup time came out
+*anti*-correlated with how many of my jobs shared a node (t-806, 5 of mine: 19–20 min; n-804, 1: 33 min; n-801,
+3 of mine but 8 jobs from 5 users: 55+ min). An earlier reading of the first attempt blamed self-co-location and
+was wrong. Submissions are still staggered, but as risk-spreading across nodes rather than contention-avoidance.
+**Walltime must be right-sized per job, not maximised**: `killable` allows 24 h, but a blanket `--time=720` on all
+nine left Slurm's backfill unable to slot them with 106 pending vs 88 running — estimated starts ran to the next
+day, and resubmitting the identical jobs with `--time` matched to their work started all nine within 30 min.
 
 ### The sweep
 

@@ -30,12 +30,23 @@
 # J7a/b/c share one z0 (Phase 3's, seed 1234) and vary ONLY the Langevin noise, which measures PC's
 # within-seed variance -- the component Phase 3 structurally does not have, and what sizes wave 2.
 #
-# WHY SUBMISSIONS ARE STAGGERED: wave 1's first attempt put 5 jobs on n-801, and those 5 were still
-# loading when the two that landed alone on other nodes had already finished setup. Co-location HURT --
-# they contend for the node's NFS client bandwidth rather than usefully sharing page cache. The model is
-# 32 GB of mmap'd safetensors on $WORK and job 966117 was measured page-faulting it in at ~5 MB/s, so
-# read bandwidth, not GPU, is the setup bottleneck. Spacing submissions lets Slurm place them as nodes
-# free up instead of packing one.
+# WHY SUBMISSIONS ARE STAGGERED -- and what the real variable turned out to be. Setup is NFS-bound: the
+# model is 32 GB of mmap'd safetensors on $WORK, and jobs page it in while sitting in state Dl on
+# folio_wait_bit_common. Measured rates ranged from 5 to 12 MB/s, making setup 19-55+ min.
+#
+# An earlier version of this comment blamed CO-LOCATION of my own jobs, from the first attempt where 5
+# jobs on n-801 were still loading while 2 placed alone elsewhere had finished. That was WRONG, and the
+# relaunch disproved it: setup time came out ANTI-correlated with how many of my jobs shared a node --
+#     t-806:  5 of my jobs  ->  19-20 min
+#     n-804:  1 of my job   ->  33 min
+#     n-801:  3 of my jobs  ->  53+ min, measured at 12 MB/s
+# What n-801 actually had was 8 jobs from 5 DIFFERENT users. So the variable is the node's total I/O
+# contention across all tenants (plus possibly hardware -- t-806 has 1.5 TB RAM vs n-801's 515 GB),
+# which is neither observable before submission nor controllable.
+#
+# Staggering is therefore kept for a weaker but still real reason: it lets Slurm place jobs as nodes free
+# up rather than packing whichever node is free at one instant, which spreads the risk across nodes
+# instead of concentrating a whole wave behind one slow one. It is risk-spreading, not contention-avoidance.
 #
 # Results and decoded dirs are keyed on the full config inside pc_sweep.py, so these never collide and
 # each is independently resumable per lambda.
