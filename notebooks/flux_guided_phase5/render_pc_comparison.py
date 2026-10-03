@@ -15,9 +15,11 @@ spread at fixed z0.
        PC-versus-broken.
    (2) |x|/sqrt(d) is ANTI-correlated with image quality: the destroyed image measures 2.88 against the
        intact PC image's 3.90.
-   `hf` tracked recognizability correctly at every comparison and is the proxy to keep. The |x| tables are
-   retained because the quantity is still worth recording, NOT because low |x| means good. The real
-   arbiter is the decoded PNGs, which are written per point -- look at them first.
+   (3) `hf` is the least bad scalar but is NOT a predictor either -- it ranks arms within one seed at one
+       lambda, yet seed 1234 scores 0.0089 on a recognizable dog at lam=1.571 while seed 3141 scores
+       0.0093 on a destroyed mosaic. NO scalar here predicts recognizability: not f, not |x|, not hf.
+   The |x| tables are retained because the quantity is worth recording, NOT because low |x| means good.
+   The real arbiter is the decoded PNGs, which are written per point -- look at them first.
 
 No GPU. Only reads what is already on disk, so it can be re-run any time, including mid-sweep (cells with
 no result are left blank, like render_fine_sweep_5seed.py's).
@@ -33,13 +35,15 @@ dogs (f 14.2 vs 23.5); at lam=2.357 Phase 3 has degraded to a crude pictograph w
 dog (f 47.2 vs 57.2); by lam=3.143 both are broken. So the corrector buys about one lambda step of extra
 structural integrity plus 20-65% more novelty, for 1.9x the compute.
 
-CAVEAT ON `hf`, measured here on Phase 3's own stored images rather than assumed: it is NOT monotone in
-lambda. Recomputed over fine_decoded_max5.5, it runs 0.0546 (lam=0, the untilted photo-like dog) -> 0.0213
-(lam=1.57, a smooth restyle) -> 0.0417 (lam=5.5, collapsed) -- it dips before it rises, because a flat
-ink-sketch or cartoon reinterpretation genuinely has LESS high-frequency content than a photograph. So
-`hf` is usable as a comparison ACROSS ARMS AT MATCHED LAMBDA, and not as an absolute "is this broken"
-score. `|x|` (available only for runs this phase produced; Phase 3 never recorded it) is the cleaner
-one-directional signal.
+CAVEAT ON `hf`: it is NOT monotone in lambda. Over fine_decoded_max5.5 it runs 0.0546 (lam=0, photo-like
+dog) -> 0.0213 (lam=1.57, a smooth restyle) -> 0.0417 (lam=5.5, collapsed) -- it dips before it rises,
+because a flat ink-sketch or cartoon reinterpretation genuinely has LESS high-frequency content than a
+photograph. And it has no absolute threshold across seeds (see (3) above). Usable only as a cross-arm
+comparison at matched lambda on one seed.
+
+AND THE DEEPER CAVEAT: "recognizable" has no operational definition here. Every scalar tested failed to
+track it, so the call is a human judgment on the images. That is a real limit on how strongly any Phase 5
+conclusion can be stated -- render the grid and look, rather than trusting a summary of it.
 
     python render_pc_comparison.py
 """
@@ -61,6 +65,16 @@ from pc_sweep import hf_power_fraction                                          
 
 PHASE3 = os.path.join(HERE, "..", "flux_guided_phase3")
 LAM_STEP = 5.5 / 14
+
+
+def _short(lab: str) -> str:
+    """Distinguishing label for table headers. Naive truncation collides: every pc_guided variant
+    becomes 'pc_guided', and the within-seed replicates differ only in a suffix that gets cut."""
+    import re as _re
+    s = (lab.replace("pc_unguided", "unguid").replace("pc_guided", "guid")
+            .replace("flow_guided", "ctrl").replace("eta=", "").replace("phase 3 ", "p3")
+            .replace(" (stored)", "").replace("max5.5", ""))
+    return _re.sub(r"z0=\d+/", "z0/", s)[:24]
 
 
 def _label(stamp: dict) -> str:
@@ -217,7 +231,7 @@ def main() -> None:
     print(f"wrote {OUT} ({grid.size[0]}x{grid.size[1]})")
 
     # --- the numeric table, and the cross-check the whole comparison rests on ---------------------
-    print(f"\n{'lam':>7s} " + " ".join(f"{lab.split()[0]:>26s}" for lab, _, _ in loaded))
+    print(f"\n{'lam':>7s} " + " ".join(f"{_short(lab):>26s}" for lab, _, _ in loaded))
     print(f"{'':>7s} " + " ".join(f"{'f / hf / |x|':>26s}" for _ in loaded))
     for lam in LAM_GRID:
         cells = []
@@ -320,15 +334,7 @@ def main() -> None:
                 return ys[i] * (1 - w) + ys[i + 1] * w
         return None
 
-    def short(lab: str) -> str:
-        """Distinguishing label. Naive truncation collides: every pc_guided variant becomes 'pc_guided',
-        and 'pc_guided c1 z0=1234/s101' vs '.../s202' both cut to the same 15 chars -- so the seed, which
-        is the ONLY thing distinguishing the within-seed replicates, has to survive."""
-        import re as _re
-        s = (lab.replace("pc_unguided", "unguid").replace("pc_guided", "guid")
-                .replace("flow_guided", "ctrl").replace("eta=", "").replace("phase 3 ", "p3")
-                .replace(" (stored)", "").replace("max5.5", ""))
-        return _re.sub(r"z0=\d+/", "z0/", s)[:15]
+    short = _short
 
     curves: list[tuple[str, list[float], list[float], list[float]]] = []
     for lab, res, _ddir in loaded:
