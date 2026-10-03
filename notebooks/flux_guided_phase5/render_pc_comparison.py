@@ -22,13 +22,16 @@ spread at fixed z0.
 No GPU. Only reads what is already on disk, so it can be re-run any time, including mid-sweep (cells with
 no result are left blank, like render_fine_sweep_5seed.py's).
 
-HOW TO READ IT (the same warning pc_sweep.py's docstring carries, repeated here because this is the
-artifact people will actually look at): the hypothesis is NOT that the PC arms show higher f. The
-corrector pulls back toward p_t, so at matched lambda they should report LOWER f than flow_guided. The
-claim under test is that the RECOGNIZABLE window extends to larger lambda -- so compare the images at
-lam >= 3.93, where Phase 3 is known to lock onto a fixed off-manifold attractor, and read `hf` (fraction
-of spectral power above 0.25 Nyquist) and `|x|` (latent norm over sqrt(d)) as the quantitative proxies
-for that. f is meaningful only within the still-recognizable band.
+HOW TO READ IT, rewritten after wave 1 (the original text predicted the opposite of what happened, on a
+wrong mechanism -- it is kept nowhere, but the error is worth naming): the corrector does NOT pull back
+toward p_t. It targets q_t ~ p_t exp(lam r), which at any meaningful lambda is itself off-manifold, so at
+matched lambda the PC arms report HIGHER f, not lower. Measured: +65% at lam=1.57, +21% at lam=2.36.
+
+The claim under test is whether structure survives further up lambda, and only the IMAGES answer it. Wave
+1's answer, at matched lambda and matched n_steps=10: at lam=1.571 both Phase 3 and PC are recognizable
+dogs (f 14.2 vs 23.5); at lam=2.357 Phase 3 has degraded to a crude pictograph while PC is still clearly a
+dog (f 47.2 vs 57.2); by lam=3.143 both are broken. So the corrector buys about one lambda step of extra
+structural integrity plus 20-65% more novelty, for 1.9x the compute.
 
 CAVEAT ON `hf`, measured here on Phase 3's own stored images rather than assumed: it is NOT monotone in
 lambda. Recomputed over fine_decoded_max5.5, it runs 0.0546 (lam=0, the untilted photo-like dog) -> 0.0213

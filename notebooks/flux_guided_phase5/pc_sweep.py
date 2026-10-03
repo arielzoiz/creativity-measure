@@ -21,14 +21,29 @@ backward is taken. At lam != 0 the deviation is RECORDED against the backend's o
 floor rather than asserted -- FLUX's backward is not bit-reproducible on GPU, which cost jobs
 965868/965869 before the check was corrected. See `preflight` item (5).
 
-WHAT SUCCESS LOOKS LIKE -- read this before reading the numbers. The hypothesis is NOT "higher f". The
-corrector pulls back toward p_t, so at matched lam the PC arms should report LOWER f than Phase 3. The
-claim under test is that the RECOGNIZABLE window extends to larger lam: at lam in [3.9, 5.5], where
-Phase 3 is destroyed, PC images should still read as "a dog". The quantitative proxies recorded per point
-are `hf_frac` (fraction of spectral power above 0.25 Nyquist -- the graininess metric CLAUDE.md's
-gamma-window finding already used) and `x_norm_final` (off-manifold failure inflates the latent norm);
-f is read only WITHIN the still-recognizable band. Same rule as everywhere else in this repo: rising
-novelty is never the stopping signal.
+WHAT SUCCESS LOOKS LIKE -- rewritten after wave 1, because the original text here predicted the opposite
+of what happened and named the wrong mechanism.
+
+The corrector does NOT pull back toward p_t. It targets q_t ~ p_t exp(lam r), which at any meaningful lam
+is itself off-manifold, so the corrector ACCELERATES the tilt: at matched lam the PC arms report HIGHER f
+(+65% at lam=1.57, +21% at lam=2.36), not lower.
+
+**LOOK AT THE DECODED PNGs FIRST.** They are written per point the moment it completes, and they are the
+only thing that answers the real question. Wave 1 spent hours on scalar comparisons that pointed the wrong
+way; five image reads reversed two conclusions. Specifically:
+  - `x_norm_final` is ANTI-correlated with quality here: the destroyed n_steps=19 image measures 2.88
+    against the intact PC image's 3.90. Do NOT read low ||x|| as "on-manifold". It is recorded because it
+    is worth having, not because it is a quality proxy.
+  - `hf_frac` (spectral power above 0.25 Nyquist) DID track recognizability at every comparison -- lower
+    is more intact. It is the scalar to trust, and only as a cross-arm comparison at matched lam.
+  - `n_steps` must be MATCHED across arms. Raising it does not merely cost more compute, it destroys
+    guidance (n_steps=19 is abstract blocks at lam=1.571 where n_steps=10 is a recognizable dog), so it
+    cannot be used to build a compute-matched control.
+
+Wave 1's answer, at matched lam and matched n_steps=10: lam=1.571 both recognizable (f 14.2 vs 23.5);
+lam=2.357 Phase 3 degraded to a pictograph while PC is still clearly a dog (f 47.2 vs 57.2); lam=3.143
+both broken. About one lam step of extra structural integrity plus 20-65% more novelty, at 1.9x compute.
+Same rule as everywhere else in this repo: rising novelty is never the stopping signal.
 
 Setup is IMPORTED from Phase 3's fine_lambda_sweep.py rather than copied: lambda_s, the reference latents
 and the whole reward config must be bit-identical to that run for the cross-phase image comparison to
