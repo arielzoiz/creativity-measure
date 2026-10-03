@@ -5,10 +5,19 @@ corrector_steps, eta_reference, snr, seeds), so adding an ablation adds a row wi
 are the union of every lambda present, snapped to Phase 3's zoom lattice. A final row reads Phase 3's OWN
 stored max5.5 images at the same lambdas, as an independent cross-check on the re-run flow_guided arm.
 
-Also prints the DECISION GATE: |x|/sqrt(d) for each PC arm against the COMPUTE-MATCHED flow_guided @19
-control (19 guided units either way), which is the only comparison that separates "the corrector works"
-from "more reward-gradient evaluations work"; and the within-seed spread at fixed z0, which is the
-variance component Phase 3 structurally lacks and which sizes the seed replication.
+Also prints a decision gate and a tilt-vs-inflation frontier keyed on |x|/sqrt(d), plus the within-seed
+spread at fixed z0.
+
+!! READ THIS BEFORE TRUSTING EITHER |x|-BASED TABLE. Wave 1's images falsified both of their premises:
+   (1) the "compute-matched" flow_guided @19 control is NOT a valid control -- at lam=1.571 it is destroyed
+       (abstract blocks, no dog) while the SAME algorithm at n_steps=10 gives a recognizable dog, so more
+       ODE steps break guidance rather than merely costing more. Comparisons against it are
+       PC-versus-broken.
+   (2) |x|/sqrt(d) is ANTI-correlated with image quality: the destroyed image measures 2.88 against the
+       intact PC image's 3.90.
+   `hf` tracked recognizability correctly at every comparison and is the proxy to keep. The |x| tables are
+   retained because the quantity is still worth recording, NOT because low |x| means good. The real
+   arbiter is the decoded PNGs, which are written per point -- look at them first.
 
 No GPU. Only reads what is already on disk, so it can be re-run any time, including mid-sweep (cells with
 no result are left blank, like render_fine_sweep_5seed.py's).

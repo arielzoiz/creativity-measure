@@ -365,6 +365,46 @@ was wrong. Submissions are still staggered, but as risk-spreading across nodes r
 nine left Slurm's backfill unable to slot them with 106 pending vs 88 running — estimated starts ran to the next
 day, and resubmitting the identical jobs with `--time` matched to their work started all nine within 30 min.
 
+### Wave 1 result (seed 1234) — the hypothesis is SUPPORTED, but only the images show it
+
+**Read the images, not the scalars.** The decisive comparison is at matched $\lambda$ and matched `n_steps=10`,
+differing only by the corrector:
+
+| $\lambda$ | Phase 3 (no corrector) | PC (`corrector_steps=1`) |
+|---|---|---|
+| 1.571 | recognizable folk-art dog, $f = 14.2$ | recognizable cartoon dog, $f = 23.5$ |
+| 2.357 | **degraded** to a crude pictograph, $f = 47.2$ | **clearly a dog**, $f = 57.2$ |
+| 3.143 | broken, $f = 89.8$ | broken, $f = 91.4$ |
+
+So the corrector buys roughly **one $\lambda$ step of extra structural integrity plus 20–65% more novelty**,
+for 1.9$\times$ the compute. Modest, real, and visible. At $\lambda = 2.36$ PC is simultaneously *more*
+recognizable and *higher* $f$ than Phase 3 — the one place the phase's hypothesis is cleanly confirmed.
+
+**Two measurement errors were made and corrected before this conclusion was reached**; both are now
+Established Findings in CLAUDE.md because they generalize:
+1. The **compute-matched control was invalid**. `flow_guided` at `n_steps=19` (chosen to match PC's 19 guided
+   units) is *destroyed* at $\lambda = 1.571$ where `n_steps=10` is fine — more ODE steps integrate the guided
+   field more faithfully and land further off-manifold. Phase 3's window exists partly *because* of
+   discretization error. Every matched-compute comparison against that arm was PC-versus-broken.
+2. $\lVert x \rVert/\sqrt{d}$ is **anti-correlated** with image quality here (destroyed image 2.88, intact
+   image 3.90). A whole decision gate and a tilt-vs-inflation frontier were built on it before the images
+   falsified it. `hf` tracked recognizability correctly at every comparison and is the proxy to keep.
+
+**The corrector's reach is capped by the $\eta$ rule** (derived and GPU-confirmed; see `flow_guided_pc.py`):
+under `eta_reference="total"` the reward-direction displacement goes as $\lambda/(1+\lambda)^{2}$, peaking at
+$\lambda = 1$ and decaying after. `pc_unguided` measures $f$ = 0.9702 / 0.9699 / 0.9691 / 0.9693 at
+$\lambda$ = 0.79 / 1.57 / 2.36 / 3.14 — flat to the third decimal across a 4$\times$ change in $\lambda$ — and
+`corrector_steps=2` at $\lambda = 7.07$ reproduces the plain baseline within noise with `disp` = 0.0099.
+`eta_reference="score"` removes the cap (`disp` 0.0789 vs 0.0099, $f$ +16.9% over baseline at
+$\lambda = 7.86$) but collapses the noise-to-drift ratio from 6.25 to **0.896**, turning the corrector from a
+Langevin sampler into approximate gradient ascent — more novelty, worse `hf` and $\lVert x \rVert$.
+
+**Noise floors**, measured from replicates sharing one $z_{0}$ and varying only the Langevin seed (jobs
+967145/967146/967147 plus 966693 as an unplanned fourth): $f$ CV = **3.7%** at $\lambda = 3.93$ (n=4) and
+**0.64%** at $\lambda = 5.5$ (n=3). The floor shrinks with $\lambda$ because the high-$\lambda$ attractor
+washes out both corrector noise and backend nondeterminism. Within-seed spread is entirely accounted for by
+the backend floor (CLAUDE.md), so **seed replication is needed on the $z_{0}$ axis only**.
+
 ### The sweep
 
 `notebooks/flux_guided_phase5/pc_sweep.py` + `pc_sweep.slurm`, one job per arm, with setup *imported* from Phase 3's `fine_lambda_sweep.py` so
