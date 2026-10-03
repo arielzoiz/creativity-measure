@@ -391,6 +391,23 @@ was a favourable draw**, which is precisely what a single $z_{0}$ cannot reveal.
 So the corrector is worth its 1.9$\times$ compute if what you want is more novelty at a working $\lambda$,
 and is not a way to push $\lambda$ higher.
 
+### OPEN: `corrector_steps` > 1 is untested where it matters
+
+Everything above is `corrector_steps=1`. C=2 was run only at $\lambda = 3.93 / 5.5 / 7.07$ — all past the
+breakdown point, i.e. on already-destroyed images — and from that it was concluded only that doubling C
+does not rescue high $\lambda$. **There is no C>1 data at $\lambda \leq 2.36$, where images survive and
+where the corrector's entire measured benefit lives.** The ablation was placed where the action was *then
+believed* to be (high $\lambda$, window extension) and did not move when that framing proved wrong — the
+same error that invalidated the first wave-2 grid.
+
+Both outcomes are informative and neither is predictable from what is on file: more corrector iterations
+could compound the tilt, or saturate because the $\lambda/(1+\lambda)^{2}$ cap shrinks each step's
+contribution. Every `disp` measurement available is from the annealed regime and does not extrapolate.
+
+Proposed: C $\in \{2, 4\}$ (geometric from C=1, spans 4$\times$) across the same 5 seeds at
+$\lambda$-lattice indices 1–4, $\approx 23$ GPU-h, staged so C=4 runs only if C=2 shows a gain. Full
+handoff with commands and the gotchas: `notebooks/flux_guided_phase5/NEXT_SESSION.md`.
+
 ### Wave 1 result (seed 1234) — what the single-seed run showed, before replication
 
 **Read the images, not the scalars.** The decisive comparison is at matched $\lambda$ and matched `n_steps=10`,
@@ -438,8 +455,10 @@ $\lambda_{s}$, the reference latents and the whole reward config are bit-identic
 
 | arm | settings | est. |
 |---|---|---|
-| `pc_guided` | `predictor_guided=True`, `corrector_steps=2` — strict superset of Phase 3 | 3.6 h |
-| `pc_unguided` | `predictor_guided=False`, `corrector_steps=2` — all tilt from the corrector | 2.3 h |
+| `pc_guided` | `predictor_guided=True` — strict superset of Phase 3 | 3.6 h |
+| `pc_unguided` | `predictor_guided=False` — all tilt from the corrector | 2.3 h |
+
+*(This table is the PRE-LAUNCH plan, kept as a record. It specified `corrector_steps=2`; the runs actually used `corrector_steps=1` — Song et al.'s reference setting, and the choice that makes `pc_unguided` compute-matched to Phase 3 for free.)*
 | `flow_guided` | `corrector_steps=0` — Phase 3, bitwise | 1.3 h |
 
 8 $\lambda$ points on *every other* point of Phase 3's zoom grid ($\{0, 0.79, 1.57, 2.36, 3.14, 3.93, 4.71, 5.5\}$), `SWEEP_SEED=1234` so $z_{0}$ is
