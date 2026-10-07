@@ -67,15 +67,20 @@ set -e
 
 ARM="$1"
 case "$ARM" in
-    pc_guided|pc_unguided|flow_guided) shift ;;
-    *)
-        echo "FATAL: first argument must be the arm; the rest are forwarded to pc_sweep.py." >&2
-        echo "  sbatch pc_sweep.slurm {pc_guided|pc_unguided|flow_guided} [pc_sweep.py flags...]" >&2
+    -*|"")
+        echo "FATAL: first argument must be the arm (or a comma-separated list of arms); the rest are" >&2
+        echo "forwarded to pc_sweep.py." >&2
+        echo "  sbatch pc_sweep.slurm {pc_guided|pc_unguided|flow_guided}[,...] [pc_sweep.py flags...]" >&2
         echo "  (got: '${ARM}')" >&2
         exit 1
         ;;
+    *) shift ;;
 esac
+# Not validated here any more: with comma-separated lists the shell case would have to enumerate every
+# subset. pc_sweep.py's own --arm parser rejects an unknown name before any model load, which is the
+# same failure one second later.
 EXTRA="$@"
+ARMTAG=$(echo "$ARM" | tr ',' '+')
 
 WORK=/home/dcor/arielzoizner
 REPO=$WORK/projects/creativity-measure
@@ -108,4 +113,4 @@ echo "=== running pc_sweep.py --arm $ARM $EXTRA ==="
 "$PY" -u pc_sweep.py --arm "$ARM" "$@"
 
 echo "=== done $(date) ==="
-ls -lt "$SWEEP_DIR"/pc_sweep_results_"$ARM"*.json 2>/dev/null | head -5
+ls -lt "$SWEEP_DIR"/pc_sweep_results_*.json 2>/dev/null | head -5

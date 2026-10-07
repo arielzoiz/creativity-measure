@@ -75,7 +75,8 @@ PHASE3 = os.path.join(HERE, "..", "flux_guided_phase3")
 sys.path.insert(0, PHASE3)
 
 from fine_lambda_sweep import (   # noqa: E402  # pyright: ignore[reportMissingImports]  (sys.path above)
-    N_PARTICLES, N_STEPS_ODE, SHIFT, SWEEP_SEED, Setup, dry_setup, flux_setup, note,
+    PROMPT as PROMPT_DEFAULT, N_PARTICLES, N_STEPS_ODE, SHIFT, SWEEP_SEED, Setup, dry_setup,
+    flux_setup, note,
 )
 
 from creativity_measure.samplers.flow_guided import flow_guided_sample                     # noqa: E402
@@ -88,7 +89,14 @@ from creativity_measure.samplers.flow_guided_pc import (                        
 # <= 5.5 lands exactly on an existing fine_decoded_max5.5/*.png and the images pair one-to-one -- while
 # letting k > 14 extend PAST Phase 3's range. That extension is the point: the max5.5 grid was chosen to
 # bracket PHASE 3's collapse, so if the corrector pushes the ceiling out, 5.5 is too short to find it.
-LAM_STEP = 5.5 / 14
+LAM_STEP_PHASE3 = 5.5 / 14
+LAM_STEP = LAM_STEP_PHASE3     # overridable per run via --lam-step; see main()
+
+# The prompt study (2026-10-07) uses --lam-step 0.2 with k=1..5, i.e. lambda in {0.2,...,1.0}. That
+# lattice does NOT pair with Phase 3's images and is not meant to: past lam ~ 1 both arms are already
+# too noisy to read, and the whole measured benefit lives below it. lam=0 is the unguided sample, so it
+# is the "clear" image for that (prompt, seed) and is method-independent.
+LAM_STEP_PROMPT_STUDY = 0.2
 
 # Wave 1: uniform every-other-lattice-point from 0 to 7.857. Deliberately NOT concentrated on the
 # high-lam region, for two reasons found while checking a sparser draft:
@@ -115,9 +123,14 @@ EXACT_JACOBIAN = True          # Phase 3's production setting (fine_lambda_sweep
 
 ARMS = ("pc_guided", "pc_unguided", "flow_guided")
 
-# Preflight reference values, all from Phase 3's completed runs on this exact config (every seed's stamp
-# records lambda_s = 81.016 on an NVIDIA L40S).
-LAM_S_EXPECTED = 81.016
+# Preflight reference values. lambda_s is PER PROMPT, not a constant: the reference latents are G(z)
+# under the prompt-conditioned velocity, so a new prompt is a new reward with its own std_p(f). The
+# registry below is seeded with Phase 3's measured value for its own prompt; any prompt not in it is
+# MEASURED and recorded on first use, and asserted against that recorded value on every later job. The
+# check is a config-drift guard ("did the refset/reward change under me"), which is exactly as useful
+# per prompt as it was against a hard-coded 81.016 -- it just cannot be known before the first run.
+LAM_S_SEED_VALUES = {"A dog": 81.016}          # every Phase 3 seed's stamp, on an NVIDIA L40S
+LAM_S_REGISTRY = os.path.join(HERE, "lam_s_by_prompt.json")
 LAM_S_TOL = 0.05
 EXPECTED_GPU = "L40S"
 
@@ -203,6 +216,40 @@ def save_results(res: dict) -> None:
 # The sweep
 # =====================================================================================================
 
+def prompt_slug(prompt: str) -> str:
+    """Filename-safe token for a prompt, so two prompts never share a results file or decode dir."""
+    s = "".join(ch.lower() if ch.isalnum() else "-" for ch in prompt).strip("-")
+    while "--" in s:
+        s = s.replace("--", "-")
+    return s or "empty"
+
+
+def _lam_s_registry() -> dict[str, float]:
+    reg = dict(LAM_S_SEED_VALUES)
+    if os.path.exists(LAM_S_REGISTRY):
+        with open(LAM_S_REGISTRY) as fh:
+            reg.update(json.load(fh))
+    return reg
+
+
+def _record_lam_s(prompt: str, lam_s: float) -> None:
+    """Atomic, and last-writer-wins on purpose.
+
+    The two jobs of a prompt (one per seed) run concurrently and both measure lambda_s before either
+    has recorded it, so both will write. That is harmless: they ran the same deterministic setup on the
+    same pinned GPU model, so they write the same number to within the tolerance the value is used at.
+    """
+    reg = {}
+    if os.path.exists(LAM_S_REGISTRY):
+        with open(LAM_S_REGISTRY) as fh:
+            reg = json.load(fh)
+    reg[prompt] = lam_s
+    tmp = f"{LAM_S_REGISTRY}.tmp.{os.getpid()}"
+    with open(tmp, "w") as fh:
+        json.dump(reg, fh, indent=2, sort_keys=True)
+    os.replace(tmp, LAM_S_REGISTRY)
+
+
 def _arm_kwargs(arm: str) -> dict[str, Any]:
     if arm == "pc_guided":
         return dict(predictor_guided=True, corrector_steps=CORRECTOR_STEPS)
@@ -213,7 +260,7 @@ def _arm_kwargs(arm: str) -> dict[str, Any]:
     raise ValueError(f"unknown arm {arm!r}, expected one of {ARMS}")
 
 
-def preflight(S: Setup, sweep_seed: int, *, dry_run: bool) -> dict[str, Any]:
+def preflight(S: Setup, sweep_seed: int, *, dry_run: bool, prompt: str = PROMPT_DEFAULT) -> dict[str, Any]:
     """Tier-1 checks: everything whose failure invalidates the WHOLE job. Raises; never warns.
 
     Runs before any sweep point. Total cost ~4 min against a multi-hour sweep, and all but the last two
@@ -250,18 +297,29 @@ def preflight(S: Setup, sweep_seed: int, *, dry_run: bool) -> dict[str, Any]:
             "The reward's normalization is mis-wired; every f in this job would be on the wrong scale."
         )
 
-    # (3) lambda_s reproduces Phase 3's. Free (already computed by _build_reward_and_lam_s). This is the
-    # check that the refset/reward config did not drift from the run we are comparing against.
+    # (3) lambda_s reproduces THIS PROMPT's recorded value. Free (already computed by
+    # _build_reward_and_lam_s). This is the check that the refset/reward config did not drift from the
+    # run we are comparing against. A prompt with no recorded value is measured and recorded here -- it
+    # cannot be asserted on its first job, by construction.
     out["lam_s"] = S.lam_s
     if not dry_run:
-        rel = abs(S.lam_s - LAM_S_EXPECTED) / LAM_S_EXPECTED
-        note(f"preflight lambda_s: {S.lam_s:.3f} vs Phase 3's {LAM_S_EXPECTED} (rel {rel:.2%})")
-        if rel > LAM_S_TOL:
-            raise AssertionError(
-                f"lambda_s = {S.lam_s:.3f} differs from Phase 3's {LAM_S_EXPECTED} by {rel:.1%} "
-                f"(> {LAM_S_TOL:.0%}). The reference latents or the reward config diverged, so no number "
-                "here is comparable to Phase 3."
-            )
+        known = _lam_s_registry().get(prompt)
+        if known is None:
+            note(f"preflight lambda_s: {S.lam_s:.3f} -- first run for prompt {prompt!r}, recording it "
+                 "as this prompt's reference (no assert possible on a first run)")
+            _record_lam_s(prompt, S.lam_s)
+        else:
+            rel = abs(S.lam_s - known) / known
+            note(f"preflight lambda_s: {S.lam_s:.3f} vs {prompt!r}'s recorded {known:.3f} "
+                 f"(rel {rel:.2%})")
+            if rel > LAM_S_TOL:
+                raise AssertionError(
+                    f"lambda_s = {S.lam_s:.3f} differs from the recorded value for prompt {prompt!r} "
+                    f"({known:.3f}) by {rel:.1%} (> {LAM_S_TOL:.0%}). The reference latents or the "
+                    f"reward config diverged, so no number here is comparable to that run. If the "
+                    f"divergence is intended, delete {prompt!r} from "
+                    f"{os.path.basename(LAM_S_REGISTRY)}."
+                )
 
     # (4) The score reparametrization, cross-validated against the reward's OWN EDM/Tweedie score path on
     # the real model. The formula is pure algebra and already unit-tested on CPU; what this buys is
@@ -484,10 +542,18 @@ def run_one(S: Setup, arm: str, idx: int, lam: float, res: dict, sweep_seed: int
 
 
 def main() -> None:
-    global RESULTS, DECODED_DIR, CORRECTOR_STEPS, SNR, ETA_REFERENCE, LAM_GRID, N_STEPS
+    global RESULTS, DECODED_DIR, CORRECTOR_STEPS, SNR, ETA_REFERENCE, LAM_GRID, N_STEPS, LAM_STEP
     ap = argparse.ArgumentParser()
-    ap.add_argument("--arm", choices=ARMS, required=True,
-                    help="which of the three arms to run; one job per arm (see pc_sweep.slurm).")
+    ap.add_argument("--arm", type=str, required=True,
+                    help=f"comma-separated arms from {ARMS}. Several arms in ONE job share the model "
+                         "load, the reference bank and the preflight -- measured at 35-90 min on this "
+                         "path, i.e. comparable to the sweep itself -- and are guaranteed to land on "
+                         "the same GPU, which the cross-arm comparison requires anyway.")
+    ap.add_argument("--prompt", type=str, default=PROMPT_DEFAULT,
+                    help="text prompt (default: %(default)r, Phase 3's). A prompt is a SEPARATE REWARD: "
+                         "the reference latents are G(z) under the prompt-conditioned velocity, so "
+                         "S_scale, gamma_lo and lambda_s all move with it. It enters the results key, "
+                         "so prompts never share a file.")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--tag", type=str, default=None,
                     help="extra suffix on top of the auto-generated config key (see below). Only needed "
@@ -501,6 +567,11 @@ def main() -> None:
                     help="comma-separated lattice indices k; lambda = k * 5.5/14, i.e. Phase 3's zoom "
                          "grid. k <= 14 pairs exactly with an existing fine_decoded_max5.5 image; k > 14 "
                          "extends past anything Phase 3 ran. (default: %(default)s)")
+    ap.add_argument("--lam-step", type=float, default=LAM_STEP_PHASE3,
+                    help="lattice spacing; lambda = k * step. Default %(default)g is Phase 3's 5.5/14, "
+                         f"which pairs with its stored images. The prompt study uses "
+                         f"{LAM_STEP_PROMPT_STUDY} with k=1..5 (lambda 0.2..1.0). The step enters the "
+                         "stamp, so two different lattices never merge into one results file.")
     ap.add_argument("--sweep-seed", type=int, default=SWEEP_SEED,
                     help="seed threaded through the sampler (z0 AND corrector noise, unless --z0-seed "
                          "is given). Default %(default)s is Phase 3's, so z0 is IDENTICAL to its sweep.")
@@ -528,57 +599,73 @@ def main() -> None:
     SNR = args.snr
     ETA_REFERENCE = args.eta_reference
     N_STEPS = args.n_steps
+    LAM_STEP = args.lam_step
     lam_k = [int(k) for k in args.lam_k.split(",") if k.strip() != ""]
     LAM_GRID = [k * LAM_STEP for k in lam_k]
 
-    # The results key encodes EVERY axis a wave varies. Without this, two jobs differing only in
-    # --corrector-steps or --sweep-seed write to the same file: the stamp check would .stale-rename
-    # rather than corrupt, but each job would keep discarding the other's work. Same lesson as
-    # CLAUDE.md's "bump RUN_TAG per leg -- an untagged leg overwrites its own resume source".
-    key = (f"{args.arm}_n{N_STEPS}_c{CORRECTOR_STEPS}_eta{ETA_REFERENCE}"
-           f"_snr{SNR:g}_s{args.sweep_seed}"
-           + (f"_z{args.z0_seed}" if args.z0_seed is not None else "")
-           + (f"_{args.tag}" if args.tag else "")
-           + (".dryrun" if args.dry_run else ""))
-    RESULTS = os.path.join(HERE, f"pc_sweep_results_{key}.json")
-    DECODED_DIR = os.path.join(HERE, f"pc_decoded_{key}")
-    if args.dry_run and os.path.exists(RESULTS):
-        os.remove(RESULTS)
-    note(f"results -> {os.path.basename(RESULTS)}")
+    arms = [a.strip() for a in args.arm.split(",") if a.strip() != ""]
+    unknown = [a for a in arms if a not in ARMS]
+    if unknown or not arms:
+        ap.error(f"--arm must be a comma-separated subset of {ARMS}; got {args.arm!r}")
 
-    S = dry_setup() if args.dry_run else flux_setup()
-    note(f"setup ready: arm={args.arm} d={S.d} device={S.device} lambda_s={S.lam_s:.2f} "
-         f"n_steps={N_STEPS} corr_steps={CORRECTOR_STEPS} snr={SNR} eta_ref={ETA_REFERENCE} "
-         f"lam_k={lam_k} z0_seed={args.z0_seed}")
+    S = dry_setup(args.prompt) if args.dry_run else flux_setup(args.prompt)
+    note(f"setup ready: arms={arms} prompt={args.prompt!r} d={S.d} device={S.device} "
+         f"lambda_s={S.lam_s:.2f} n_steps={N_STEPS} corr_steps={CORRECTOR_STEPS} snr={SNR} "
+         f"eta_ref={ETA_REFERENCE} lam_step={LAM_STEP:g} lam_k={lam_k} lam_grid={LAM_GRID} "
+         f"z0_seed={args.z0_seed}")
 
+    # ONE preflight for the whole job, not one per arm: every item it checks (GPU model, reward
+    # normalization, lambda_s, the score reparametrization, and the corrector_steps=0 reduction) is a
+    # property of the SETUP, which all arms in this job share by construction.
     pf: dict[str, Any] = {}
     if not args.skip_preflight:
-        pf = preflight(S, args.sweep_seed, dry_run=args.dry_run)
+        pf = preflight(S, args.sweep_seed, dry_run=args.dry_run, prompt=args.prompt)
 
-    res = load_results({
-        **S.stamp, "arm": args.arm, "n_particles": N_PARTICLES, "n_steps_ode": N_STEPS,
-        "lambda_s": S.lam_s, "lam_k": lam_k, "lam_grid": LAM_GRID, "sweep_seed": args.sweep_seed,
-        "z0_seed": args.z0_seed, "corrector_steps": CORRECTOR_STEPS, "snr": SNR,
-        "eta_reference": ETA_REFERENCE, "exact_jacobian": EXACT_JACOBIAN,
-        "preflight": {k: v for k, v in pf.items() if k != "score_xval_s"},
-    })
-    for k, lam in zip(lam_k, LAM_GRID):
-        run_one(S, args.arm, k, lam, res, args.sweep_seed, args.z0_seed)
+    for arm in arms:
+        # The results key encodes EVERY axis a wave varies. Without this, two jobs differing only in
+        # --corrector-steps or --sweep-seed write to the same file: the stamp check would .stale-rename
+        # rather than corrupt, but each job would keep discarding the other's work. Same lesson as
+        # CLAUDE.md's "bump RUN_TAG per leg -- an untagged leg overwrites its own resume source".
+        # The prompt is in here for the same reason, and it is load-bearing: a prompt is a different
+        # reward, so two prompts sharing a file would silently .stale-stomp each other every job.
+        key = (f"{prompt_slug(args.prompt)}_{arm}_n{N_STEPS}_c{CORRECTOR_STEPS}_eta{ETA_REFERENCE}"
+               f"_snr{SNR:g}_s{args.sweep_seed}"
+               + (f"_z{args.z0_seed}" if args.z0_seed is not None else "")
+               + (f"_{args.tag}" if args.tag else "")
+               + (".dryrun" if args.dry_run else ""))
+        RESULTS = os.path.join(HERE, f"pc_sweep_results_{key}.json")
+        DECODED_DIR = os.path.join(HERE, f"pc_decoded_{key}")
+        if args.dry_run and os.path.exists(RESULTS):
+            os.remove(RESULTS)
+        note(f"[{arm}] results -> {os.path.basename(RESULTS)}")
+
+        res = load_results({
+            **S.stamp, "arm": arm, "n_particles": N_PARTICLES, "n_steps_ode": N_STEPS,
+            "lambda_s": S.lam_s, "lam_step": LAM_STEP, "lam_k": lam_k, "lam_grid": LAM_GRID,
+            "sweep_seed": args.sweep_seed, "z0_seed": args.z0_seed,
+            "corrector_steps": CORRECTOR_STEPS, "snr": SNR,
+            "eta_reference": ETA_REFERENCE, "exact_jacobian": EXACT_JACOBIAN,
+            "preflight": {k: v for k, v in pf.items() if k != "score_xval_s"},
+        })
+        for k, lam in zip(lam_k, LAM_GRID):
+            run_one(S, arm, k, lam, res, args.sweep_seed, args.z0_seed)
+
+        print(f"\nprompt={args.prompt!r}  arm={arm}  corr_steps={CORRECTOR_STEPS}  snr={SNR}  "
+              f"eta_ref={ETA_REFERENCE}")
+        print(f"{'idx':>4s} {'m':>7s} {'lam':>8s} {'f_mean':>12s} {'|x|/sqrt d':>11s} {'hf_frac':>8s} "
+              f"{'eta':>10s} {'disp':>8s} {'noisefrac':>10s} {'t(s)':>8s} {'oom':>4s}")
+        for k, lam in zip(lam_k, LAM_GRID):
+            pkey = f"idx{k:02d}_lam{lam:.4f}"
+            if pkey not in res:
+                print(f"{k:>4d}  (missing)")
+                continue
+            r = res[pkey]
+            print(f"{k:>4d} {r['m']:>7.3f} {r['lam']:>8.2f} {r['f_mean']:>12.4f} "
+                  f"{r['x_norm_final']:>11.4f} {r['hf_frac']:>8.4f} {r['corrector_eta_mean']:>10.3g} "
+                  f"{r['corrector_rel_disp_mean']:>8.3g} {r['corrector_noise_frac_mean']:>10.3f} "
+                  f"{r['t_sample_s']:>8.1f} {'Y' if r['oom_fallback_any'] else '-':>4s}")
 
     note("done")
-    print(f"\narm={args.arm}  corr_steps={CORRECTOR_STEPS}  snr={SNR}  eta_ref={ETA_REFERENCE}")
-    print(f"{'idx':>4s} {'m':>7s} {'lam':>8s} {'f_mean':>12s} {'|x|/sqrt d':>11s} {'hf_frac':>8s} "
-          f"{'eta':>10s} {'disp':>8s} {'noisefrac':>10s} {'t(s)':>8s} {'oom':>4s}")
-    for k, lam in zip(lam_k, LAM_GRID):
-        key = f"idx{k:02d}_lam{lam:.4f}"
-        if key not in res:
-            print(f"{k:>4d}  (missing)")
-            continue
-        r = res[key]
-        print(f"{k:>4d} {r['m']:>7.3f} {r['lam']:>8.2f} {r['f_mean']:>12.4f} "
-              f"{r['x_norm_final']:>11.4f} {r['hf_frac']:>8.4f} {r['corrector_eta_mean']:>10.3g} "
-              f"{r['corrector_rel_disp_mean']:>8.3g} {r['corrector_noise_frac_mean']:>10.3f} "
-              f"{r['t_sample_s']:>8.1f} {'Y' if r['oom_fallback_any'] else '-':>4s}")
 
 
 if __name__ == "__main__":

@@ -106,8 +106,12 @@ def _build_reward_and_lam_s(denoiser, G, img_shape, d, dtype, device) -> tuple[N
     return reward, lam_s, info
 
 
-def dry_setup() -> Setup:
-    """Tiny real FluxTransformer2DModel (same recipe as tests/test_flow_guided.py), CPU, no GPU, no VAE."""
+def dry_setup(prompt: str = PROMPT) -> Setup:
+    """Tiny real FluxTransformer2DModel (same recipe as tests/test_flow_guided.py), CPU, no GPU, no VAE.
+
+    ``prompt`` is recorded in the stamp but NOT encoded -- this path uses random embeddings, so it has
+    no text encoder. It is accepted only so a dry run produces the same stamp/key shape as the real one.
+    """
     import diffusers
     from diffusers import FluxPipeline
 
@@ -142,13 +146,19 @@ def dry_setup() -> Setup:
     G = edm_generator(denoiser_capped, img_shape=(c, h, w), sigma_min=SIGMA_MIN, sigma_max=SIGMA_MAX,
                       n_steps=N_STEPS_GEN)
     reward, lam_s, info = _build_reward_and_lam_s(denoiser_capped, G, (c, h, w), d, dtype, device)
-    stamp = {"dry_run": True, "d": d, **info}
+    stamp = {"dry_run": True, "d": d, "prompt": prompt, **info}
     return Setup(device, dtype, velocity_fn, reward, d, lam_s, None, stamp)
 
 
-def flux_setup() -> Setup:
+def flux_setup(prompt: str = PROMPT) -> Setup:
     """The real FLUX.1-dev path, mirroring the notebook's cells 2-3 exactly (same reward config, same
-    seeds) so lambda_s reproduces that run's measured ~81.0."""
+    seeds) so lambda_s reproduces that run's measured ~81.0.
+
+    ``prompt`` defaults to this module's PROMPT so Phase 3's own runs are untouched. Changing it changes
+    EVERYTHING downstream -- the reference latents are G(z) under the prompt-conditioned velocity, hence
+    S_scale, gamma_lo, f_std_p and lambda_s all move with it. A prompt is therefore a separate reward,
+    not a separate sample of the same one: results across prompts are never bit-comparable, and
+    lambda_s must be re-measured per prompt (pc_sweep.py's preflight item (3) does this)."""
     from diffusers import FluxPipeline
 
     device = torch.device("cuda")
@@ -160,7 +170,7 @@ def flux_setup() -> Setup:
     pipe = FluxPipeline.from_pretrained(MODEL_ID, torch_dtype=dtype).to(device)
     with torch.no_grad():
         prompt_embeds, pooled_prompt_embeds, text_ids = pipe.encode_prompt(
-            prompt=PROMPT, prompt_2=None, device=device, max_sequence_length=512)
+            prompt=prompt, prompt_2=None, device=device, max_sequence_length=512)
     assert prompt_embeds is not None and pooled_prompt_embeds is not None, "encode_prompt returned None"
     pipe.text_encoder = pipe.text_encoder_2 = pipe.tokenizer = pipe.tokenizer_2 = None
     torch.cuda.empty_cache()
@@ -192,7 +202,8 @@ def flux_setup() -> Setup:
             outs.append(post.cpu())
         return torch.cat(outs)
 
-    stamp = {"dry_run": False, "d": d, "model": MODEL_ID, "gpu": torch.cuda.get_device_name(0), **info}
+    stamp = {"dry_run": False, "d": d, "model": MODEL_ID, "prompt": prompt,
+             "gpu": torch.cuda.get_device_name(0), **info}
     return Setup(device, dtype, velocity_fn, reward, d, lam_s, decode, stamp)
 
 
