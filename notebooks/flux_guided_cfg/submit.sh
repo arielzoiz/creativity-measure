@@ -71,26 +71,28 @@ fi
 : "${LAM_STEP:=0.1}"
 : "${LAM_K:=0,1,2,3,4,5,6,7,8,9,10}"
 
-# NODES: optional space-separated node list, consumed ONE PER JOB in order, to guarantee this batch's
-# jobs land on distinct nodes. This is placement, not an extra resource request -- it asks for nothing
-# beyond the one GPU each job already needs, and it is the direct fix for the n-801 stall above, where
-# five of MY OWN jobs on one node page-faulted the same 32 GB checkpoint at a combined ~5 MB/s and
-# produced nothing in 3 h. Pick nodes with free GPUs first:
-#   sinfo -N -O "nodelist:12,gres:22,gresused:24,statelong:10" | grep l40s
-# A pinned job PENDS if its node fills before it starts, rather than going elsewhere -- so if anything
-# sits in PENDING for more than ~15 min, resubmit that one without NODES.
-: "${NODES:=}"
-_node_i=0
+# EXCLUDE: optional comma-separated node list to AVOID, e.g. the nodes an earlier batch is already on.
+#
+# DO NOT USE --nodelist HERE. Spreading across nodes is worth doing -- it is the fix for the n-801 stall
+# (five of our own jobs page-faulting the same 32 GB checkpoint at a combined ~5 MB/s, nothing in 3 h)
+# and it decorrelates preemption (2026-10-08: both t-806 jobs died in the same instant; the two on
+# separate nodes ran straight through). But --nodelist is the wrong instrument for it, twice over:
+#   - a pinned job PENDS instead of going elsewhere if its node fills between the sinfo check and the
+#     submission, which happened twice in one batch (n-804, then n-805 on ALLOCMEM);
+#   - worse, THE PIN SURVIVES PREEMPTION AND REQUEUE. After t-806 was preempted, Slurm requeued the job
+#     still pinned to t-806 -- now held by the preemptor -- so it sat on
+#     `(ReqNodeNotAvail, UnavailableNodes:t-806)` indefinitely and needed a manual resubmit. On a
+#     PreemptMode=REQUEUE partition that turns every pin into a latent deadlock.
+# --exclude gets the same spread and cannot wedge a job as long as any other node qualifies. Check
+# capacity first -- ALLOCMEM, not FREE_MEM, is what decides (see the README):
+#   sinfo -N -O "nodelist:10,cpusstate:18,memory:10,allocmem:10,gres:18,gresused:22" | grep l40s
+: "${EXCLUDE:=}"
 
 sub() {   # sub <time> <name> <w-list> <prompt>
-    _nodeopt=""
-    if [ -n "$NODES" ]; then
-        _node_i=$((_node_i + 1))
-        _n=$(echo "$NODES" | cut -d' ' -f"$_node_i")
-        [ -n "$_n" ] && _nodeopt="--nodelist=$_n"
-    fi
-    # shellcheck disable=SC2086  # _nodeopt is intentionally word-split (empty = no flag)
-    sbatch --time="$1" --job-name="$2" $_nodeopt cfg_w_sweep.slurm \
+    _exopt=""
+    [ -n "$EXCLUDE" ] && _exopt="--exclude=$EXCLUDE"
+    # shellcheck disable=SC2086  # _exopt is intentionally word-split (empty = no flag)
+    sbatch --time="$1" --job-name="$2" $_exopt cfg_w_sweep.slurm \
         --w "$3" --prompt "$4" --sweep-seed "$SEED" --lam-step "$LAM_STEP" --lam-k "$LAM_K"
     sleep "$STAGGER"
 }
