@@ -70,6 +70,11 @@ class FlowGuidedResult:
         grad_norm_history:    mean-over-batch ||grad r|| BEFORE velocity-relative scaling, per guided step
                               (nan on unguided steps).
         v_norm_history:       mean-over-batch ||v_theta|| at each step (what "velocity" scaling targets).
+        transport_v_norm_history: mean-over-batch norm of the SEPARATE transport field, when
+                              ``transport_velocity_fn`` was supplied (nan otherwise). Read against
+                              ``v_norm_history`` to see how far the transport field departs from the one
+                              the gradient was scaled to -- e.g. how much CFG at ``w`` inflates the
+                              velocity norm.
         applied_norm_history: mean-over-batch ||lam * g_t||, i.e. what actually perturbed the velocity
                               (0 on unguided steps).
         f_hat0_history:       mean-over-batch r(x_hat_0) at each guided step -- "did guidance do anything"
@@ -84,6 +89,7 @@ class FlowGuidedResult:
     guided_history: list[bool] = field(default_factory=list)
     grad_norm_history: list[float] = field(default_factory=list)
     v_norm_history: list[float] = field(default_factory=list)
+    transport_v_norm_history: list[float] = field(default_factory=list)
     applied_norm_history: list[float] = field(default_factory=list)
     f_hat0_history: list[float] = field(default_factory=list)
     oom_fallback_history: list[bool] = field(default_factory=list)
@@ -106,6 +112,7 @@ def flow_guided_sample(
     grad_clip_percentile: float | None = None,
     min_v_norm: float = 1e-4,
     g_chunk: int | None = None,
+    transport_velocity_fn: VelocityFn | None = None,
     z0: Float[Tensor, "B d"] | None = None,
     seed: int | None = None,
     verbose: bool = False,
@@ -148,6 +155,15 @@ def flow_guided_sample(
                      to ``static_scale``.
         g_chunk:     gamma-chunk size for the OOM fallback (default 1, i.e. one gamma at a time -- the
                      most conservative, matching Phase 2's per-sample precedent).
+        transport_velocity_fn: optional second velocity field used ONLY for the Euler transport, while
+                     ``velocity_fn`` keeps supplying ``x_hat_0``, the reward, the gradient and the
+                     ``grad_scaling="velocity"`` reference norm. ``None`` (default) is the single-field
+                     behaviour, bitwise. Its purpose, and why the asymmetry is deliberate rather than an
+                     oversight, is documented on ``guided_euler_step``; the first user is manual CFG
+                     (``generators/cfg.py``'s ``cfg_velocity_fn``), where this is what keeps ``f``
+                     comparable across the CFG weight ``w`` and stops ``w`` from silently rescaling the
+                     applied gradient. The transport field is evaluated under ``no_grad`` and never
+                     differentiated, so ``exact_jacobian=True`` still backpropagates one network graph.
         z0:          initial noise at t=1; if None, drawn ``N(0, I)`` from the run's own generator (flow
                      matching's noise endpoint IS standard normal -- no sigma_max rescale needed, unlike
                      the EDM path's ``x = z * sigma_max``).
@@ -184,13 +200,14 @@ def flow_guided_sample(
             x, t_from=t_from, t_to=t_to, reward=reward, lam=lam, velocity_fn=velocity_fn,
             guided=guided, exact_jacobian=exact_jacobian, grad_scaling=grad_scaling,
             static_scale=static_scale, grad_clip_percentile=grad_clip_percentile,
-            min_v_norm=min_v_norm, g_chunk=g_chunk,
+            min_v_norm=min_v_norm, g_chunk=g_chunk, transport_velocity_fn=transport_velocity_fn,
         )
 
         res.t_history.append(t_from)
         res.guided_history.append(rec.guided)
         res.grad_norm_history.append(rec.grad_norm)
         res.v_norm_history.append(rec.v_norm)
+        res.transport_v_norm_history.append(rec.transport_v_norm)
         res.applied_norm_history.append(rec.applied_norm)
         res.f_hat0_history.append(rec.f_hat0)
         res.oom_fallback_history.append(rec.oom_fallback)

@@ -202,6 +202,9 @@ class EulerStepRecord:
 
     Field-for-field the per-step slice of ``flow_guided.FlowGuidedResult``'s parallel lists, so both
     samplers can append it straight into their own result objects without translation.
+
+    ``transport_v_norm`` defaults to nan so ``flow_guided_pc`` -- which never passes a
+    ``transport_velocity_fn`` -- is unaffected by the field existing.
     """
 
     guided: bool
@@ -211,6 +214,7 @@ class EulerStepRecord:
     f_hat0: float
     oom_fallback: bool
     static_fallback: bool
+    transport_v_norm: float = float("nan")
 
 
 def guided_euler_step(
@@ -228,6 +232,7 @@ def guided_euler_step(
     grad_clip_percentile: float | None = None,
     min_v_norm: float = 1e-4,
     g_chunk: int | None = None,
+    transport_velocity_fn: VelocityFn | None = None,
 ) -> tuple[Float[Tensor, "B d"], EulerStepRecord]:
     """One Euler step ``t_from -> t_to`` of the model's flow-matching ODE, optionally reward-guided.
 
@@ -268,24 +273,59 @@ def guided_euler_step(
         grad_clip_percentile: see :func:`clip_grad_percentile`.
         min_v_norm: below this, "velocity" scaling is a division by ~0 and falls back to ``static_scale``.
         g_chunk:    gamma-chunk size for :func:`_reward_grad`'s OOM fallback.
+        transport_velocity_fn: optional SECOND velocity field used ONLY for the Euler transport, while
+                    ``velocity_fn`` keeps supplying ``x_hat_0``, the reward, the gradient and the
+                    ``grad_scaling="velocity"`` reference norm. ``None`` (default) is exactly today's
+                    arithmetic -- one field for everything -- so ``flow_guided_pc``'s bitwise reduction to
+                    ``flow_guided`` is untouched by this parameter existing.
+
+                    THE SPLIT IS THE POINT, not a convenience. Its first user is manual CFG
+                    (``generators/cfg.py``): the transport becomes ``v_CFG`` while ``x_hat_0`` stays
+                    ``x - t*v_cond``, which buys two things. (i) The reward keeps being evaluated on the
+                    model's TRUE conditional denoised estimate, not on a ``w``-extrapolated one that no
+                    reference bank covers -- so ``f`` stays comparable across ``w``. (ii) The perturbation
+                    ``lam * g_t`` is scaled against ``||v_cond||``, NOT ``||v_CFG||``. That matters: CFG
+                    extrapolation inflates the velocity norm, so scaling to the transport field would
+                    silently scale the applied gradient UP with ``w`` and confound "a stiffer base field
+                    resists the gradient" with "the gradient got bigger". Here ``w`` moves the base field
+                    and nothing else.
+
+                    It also makes the CFG path CHEAPER than it looks: the transport field is evaluated
+                    under ``no_grad`` and never enters an autograd graph, so ``exact_jacobian=True``
+                    still builds and backpropagates exactly ONE network graph, not two.
+
+                    Passing the SAME callable as ``velocity_fn`` is detected by identity and skipped, so
+                    a ``w = 1`` CFG wrapper (which :func:`generators.cfg.cfg_velocity_fn` returns as the
+                    conditional function itself) costs one forward and is bitwise the unsplit path.
 
     Returns:
         ``(x_next, EulerStepRecord)``. ``x_next`` is always detached -- memory isolation: the graph must
         never chain in VRAM across steps.
     """
     dt = t_from - t_to
+    # Written as an if/else (not a conditional expression) so `transport_fn` narrows to VelocityFn for
+    # the type checker on both branches.
+    if transport_velocity_fn is None or transport_velocity_fn is velocity_fn:
+        transport_fn, split_transport = velocity_fn, False
+    else:
+        transport_fn, split_transport = transport_velocity_fn, True
 
     if not guided:
+        # Only the transport field is needed here: with no gradient there is no x_hat_0 and no reward, so
+        # the conditional field has no second role to play and evaluating it would be a wasted forward.
+        # `v_norm` therefore records the field actually integrated, which is what it means on this branch.
         with torch.no_grad():
-            v = velocity_fn(x, t_from)
+            v = transport_fn(x, t_from)
+        v_norm_unguided = float(v.norm(dim=1).mean())
         record = EulerStepRecord(
             guided=False,
             grad_norm=float("nan"),
-            v_norm=float(v.norm(dim=1).mean()),
+            v_norm=v_norm_unguided,
             applied_norm=0.0,
             f_hat0=float("nan"),
             oom_fallback=False,
             static_fallback=False,
+            transport_v_norm=v_norm_unguided if split_transport else float("nan"),
         )
         return (x - dt * v).detach(), record
 
@@ -315,6 +355,16 @@ def guided_euler_step(
     else:
         g_t = g / (grad_norm + _EPS) * static_scale
 
+    # The transport field, if a separate one was supplied. Evaluated AFTER the gradient (so the backward
+    # has already released its activations) and under no_grad: it is never differentiated, which is why a
+    # split transport does not add a second autograd graph. `g_t` above is already scaled against
+    # ||velocity_fn||, deliberately -- see the `transport_velocity_fn` docstring.
+    transport_v_norm = float("nan")
+    if split_transport:
+        with torch.no_grad():
+            v = transport_fn(x, t_from)
+        transport_v_norm = float(v.norm(dim=1).mean())
+
     v_guided = v - lam * g_t
     x_next = (x - dt * v_guided).detach()  # memory isolation: never chains in VRAM across steps
 
@@ -328,5 +378,6 @@ def guided_euler_step(
         f_hat0=f_hat0,
         oom_fallback=fell_back,
         static_fallback=static_fallback,
+        transport_v_norm=transport_v_norm,
     )
     return x_next, record
