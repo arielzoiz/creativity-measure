@@ -92,3 +92,47 @@ produces more decisively designed images at LOW lambda -- teapot C=1 at 0.1/0.3 
 lantern-like vessel where C=0 is still a near-photo. But on teapot it also breaks slightly EARLIER
 (C=1 losing the form by ~0.5 where C=0 holds to ~0.6). Consistent with CLAUDE.md: the corrector buys
 novelty per lambda, not a wider window.
+
+## Complete result (20/20 cells, 11 lambda each, 220 images)
+
+Last lambda at which the subject is still recognizable, judged on the decoded images:
+
+| prompt | seed | C=0 | C=1 | what the seed actually rendered at lambda=0 |
+|---|---|---|---|---|
+| building | 1234 | **1.0** | **1.0** | a detached house (object, strong silhouette) |
+| building | 3141 | ~0.5 | ~0.5 | a flat modernist facade filling the frame (no silhouette) |
+| sofa | 1234 | ~0.9 | ~0.8 | sofa, plain backdrop |
+| sofa | 3141 | ~0.8 | ~0.6 | sofa, interior |
+| car | 1234 | ~0.6 | ~0.5 | car |
+| car | 3141 | ~0.2 | ~0.2 | a PENCIL DRAWING of a car, not a photo |
+| teapot | 1234 | ~0.6 | ~0.5 | teapot, product shot |
+| teapot | 3141 | ~0.8 | ~0.7 | teapot, product shot |
+| jacket | 1234 | **1.0** | **1.0** | a man wearing a jacket |
+| jacket | 3141 | **1.0** | **1.0** | an illustrated girl wearing a jacket |
+
+Range of breakdown: **0.2 to >1.0, a 5x spread**, across prompts AND across seeds within a prompt.
+
+### The silhouette mechanism, now tested within a single prompt
+
+`building` is the cleanest evidence in the whole study because the prompt is held fixed and only z0
+varies. Seed 1234 drew a detached house -- a compact object against sky -- and never breaks through
+lambda=1, passing through genuinely attractive isometric game-art and storybook renderings. Seed 3141
+drew a flat modernist facade filling the entire frame -- no silhouette, pure repeating texture -- and
+is destroyed into grey blocks by 0.6.
+
+This is the same prediction made (and not yet run) for a `tree` vs `forest` pair: the tilt preserves a
+dominant silhouette far longer than it preserves texture. `building` got the controlled version of that
+experiment for free. It is one prompt and two seeds, so it is suggestive, not established -- but it is
+a within-prompt comparison, which is stronger than anything the cross-prompt table can give.
+
+### C=1 vs C=0
+
+Across all 10 (prompt, seed) cells: C=1 reaches **higher f at every matched lambda, without exception**,
+and breaks at the same lambda or ONE step earlier -- never later. The corrector buys novelty per
+lambda, and here it costs a little reach. Same direction as the dog runs, now at n=10.
+
+### Leftover files
+
+The five cancelled retries left partial results (`*_retry.json`, 4-5 points/arm) and their decode dirs
+on disk. `render_prompt_study.py` reads only the untagged and `_odd` tags, so they cannot contaminate
+the figure. Kept as a record of the n-801 stall; delete freely.
