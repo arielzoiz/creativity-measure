@@ -245,4 +245,38 @@ Two consequences, both hypotheses to check against images rather than conclusion
 
 ## Findings
 
-*(empty — the runs are in flight. Do not write anything here that was not read off the decoded images.)*
+*(w=2.0 and w=3.0 still in flight. Everything below was read off the decoded PNGs.)*
+
+### w = 1.5 NARROWS the creative window — the hypothesis is falsified at this weight
+
+Seed 1234, `n_steps=10`, λ lattice 0…1.0, judged on the decoded images against the stored w=1 column:
+
+| prompt | w=1 breaks at | w=1.5 breaks at |
+|---|---|---|
+| `car` | 0.9 → 1.0 (λ=0.9 posterized but legible; λ=1.0 a smeared mass) | **0.8 → 0.9** (λ=0.8 a clear striped sports car; λ=0.9 abstract panels, no car) |
+| `jacket` | never, ≤1.0 (neon line-art from 0.7, silhouette intact throughout) | **0.7 → 0.8** (λ=0.8 abstract red/teal geometry, no garment) |
+
+Two prompts, two replications, same direction. The plan's premise was that manual CFG would build a
+*stiffer* structure resisting $\lambda \nabla r$. It does the opposite, and the mechanism is
+straightforward in hindsight: CFG extrapolation is **itself** an off-manifold push
+($v_{\text{CFG}}$ is not the velocity of any probability flow at $w > 1$), so it *adds* to the reward
+gradient's damage instead of opposing it.
+
+Note what this is NOT evidence of. The arms produce different compositions at every λ — including λ=0,
+where w=1.5 alone turns a vintage Beetle into a modern sports car with no reward applied — because CFG
+diverts the trajectory from the first node, where the field separation is ~28%. So no single-λ pair can
+carry the claim; **the readout is breakdown-λ per arm**, which is what the table reports.
+
+### `hf_frac` is ANTI-correlated with recognizability here — 3 for 3
+
+| cell | image | `hf` |
+|---|---|---|
+| `car` λ=0.9 w=1 | recognizable car | 0.0970 |
+| `car` λ=0.9 w=1.5 | **destroyed** | **0.0649** |
+| `jacket` λ=0.8 w=1.5 | **destroyed** | **0.0125** (lowest in its row) |
+
+Every time, the *ruined* image scored lower. This session initially cited `hf` at λ=0.8 as corroborating
+a favourable reading of w=1.5; opening λ=0.9 reversed it. CLAUDE.md already warns `hf` has no absolute
+threshold across seeds — this extends that: it is not reliable as a **within-prompt, within-λ, cross-arm**
+ranking either, which was the one use previously thought safe. `f` is no better: it was *higher* on the
+destroyed w=1.5 cell (2.53 vs 2.47). **Nothing but the image answers the question.**
