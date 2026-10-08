@@ -245,27 +245,31 @@ Two consequences, both hypotheses to check against images rather than conclusion
 
 ## Findings
 
-*(w=2.0 and w=3.0 still in flight. Everything below was read off the decoded PNGs.)*
+*(w=3.0 still in flight on `car`/`jacket`; `jacket` w=2.0 not yet reached. Everything below was read off
+the decoded PNGs. CORRECTION 21:41: an earlier version of this section called the result "w=1.5 narrows
+the window, falsified" based on `car`+`jacket` at w=1.5 only. `car`'s own w=2.0 arm then came in and
+SURVIVED past where both w=1 and w=1.5 failed — the opposite direction. The result is NOT YET SETTLED;
+read the per-weight table below, not a one-line verdict.)*
 
-### w = 1.5 NARROWS the creative window — the hypothesis is falsified at this weight
+### Breakdown-λ per arm, seed 1234, `n_steps=10`, λ lattice 0…1.0
 
-Seed 1234, `n_steps=10`, λ lattice 0…1.0, judged on the decoded images against the stored w=1 column:
+| prompt | w=1 | w=1.5 | w=2.0 | w=3.0 |
+|---|---|---|---|---|
+| `car` | breaks 0.9→1.0 | breaks 0.8→0.9 (**worse**) | **survives past 1.0** (better — still a car at λ=1.0, albeit glitchy) | pending |
+| `jacket` | never breaks, ≤1.0 | breaks 0.7→0.8 (**worse**) | pending | pending |
+| `A dog` | never breaks, ≤1.0 | — | — | pending (likely uninformative: w=1 already survives the whole lattice here, so neither arm has anywhere to fail) |
 
-| prompt | w=1 breaks at | w=1.5 breaks at |
-|---|---|---|
-| `car` | 0.9 → 1.0 (λ=0.9 posterized but legible; λ=1.0 a smeared mass) | **0.8 → 0.9** (λ=0.8 a clear striped sports car; λ=0.9 abstract panels, no car) |
-| `jacket` | never, ≤1.0 (neon line-art from 0.7, silhouette intact throughout) | **0.7 → 0.8** (λ=0.8 abstract red/teal geometry, no garment) |
+**Not monotonic in $w$, and not yet a settled direction.** On `car`, w=1.5 hurt and w=2.0 helped, at the
+SAME λ (0.9) and the same seed. Candidate explanations, none yet distinguished: (a) CFG's effect on
+robustness is genuinely non-monotonic in $w$; (b) w=1.5 is a bad draw for this particular seed/prompt
+composition and w=2.0 a good one, i.e. this is composition variance, not a $w$ effect; (c) plain
+seed-to-seed-style variance at $n=1$ per cell — there is no measurement yet of run-to-run spread at fixed
+$w$. `jacket` w=2.0/3.0 and `a-dog`'s w=3.0 panel (in flight) are what will distinguish these.
 
-Two prompts, two replications, same direction. The plan's premise was that manual CFG would build a
-*stiffer* structure resisting $\lambda \nabla r$. It does the opposite, and the mechanism is
-straightforward in hindsight: CFG extrapolation is **itself** an off-manifold push
-($v_{\text{CFG}}$ is not the velocity of any probability flow at $w > 1$), so it *adds* to the reward
-gradient's damage instead of opposing it.
-
-Note what this is NOT evidence of. The arms produce different compositions at every λ — including λ=0,
-where w=1.5 alone turns a vintage Beetle into a modern sports car with no reward applied — because CFG
-diverts the trajectory from the first node, where the field separation is ~28%. So no single-λ pair can
-carry the claim; **the readout is breakdown-λ per arm**, which is what the table reports.
+Note what no cell comparison can be read as alone: the arms produce different compositions at every λ,
+including λ=0 with no reward applied — w=1.5 alone turns `car`'s vintage Beetle into a modern sports car
+— because CFG diverts the trajectory from the first node, where the field separation is ~28%. **The
+readout is breakdown-λ per arm**, per the table, never a single matched-λ image pair.
 
 ### `hf_frac` is ANTI-correlated with recognizability here — 3 for 3
 
