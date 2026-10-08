@@ -131,6 +131,10 @@ seed 1234 alone is ~48.3 GPU-h over 7.
 |---|---|---|
 | 2026-10-08 16:47 | 999852 (`a-dog` A, w=1.0+3.0, t-806), 999853 (`car`, n-803), 999855 (`sofa`, n-801), 1000244 (`jacket`, t-806) | seed 1234 batch 1. `jacket` took two tries to place — see "Pinning vs. memory". |
 | 2026-10-08 17:46 | 999852, 1000244 preempted on t-806, auto-requeued | ~1.8 GPU-h of setup lost, no results (both still in setup). 999853/999855 on separate nodes unaffected. See "Preemption is structural". |
+| 2026-10-08 19:12 | 1001017, 1001019 (`a-dog`/`car` seed 3141) stuck in NFS RPC wait on n-801, 20 min / 0 bytes read | relocated via `--exclude=n-801` (1001059, 1001064). `D` state + `rpc_wait_bit_killable` + zero `read_bytes` distinguishes a genuine stall from `sofa`'s slow-but-advancing read on the same node — see "Pinning vs. memory". |
+| 2026-10-08 21:04 | 1001012 (`a-dog` B, w=1.5+2.0) and 999853 (`car`, w=1.5/2.0/3.0) COMPLETED clean, seed 1234 | full data through λ=1.0 on both; see Findings. |
+| 2026-10-08 23:01 | gate: launched 1001949–1001957, the 5 remaining seed-3141 jobs (`a-dog` B, `sofa`, `teapot`, `building`, `jacket`) | see "Gate decision" in Findings. |
+| 2026-10-08 23:18 | 999855 (`sofa`, seed 1234) preempted mid-w=3.0, CUDA OOM warnings in the 90s before the kill (another job landing on the same GPU, not a leak), auto-requeued unpinned | **no results lost** — w=1.5 and w=2.0 arms both fully complete (11/11 each) on disk before the kill; only the in-flight w=3.0 point is repeated. |
 
 ### Pinning vs. memory — pin to spread, but memory decides
 
@@ -282,6 +286,20 @@ so. λ=1.0 then came in broken — w=3.0's edge matches the untilted baseline's 
 improvement at the top. **w=2.0 is the only weight that survives the full lattice** on `car`; w=3.0 is
 better than w=1/w=1.5 at 0.9 but not better than w=1 overall; w=1.5 is worse than everything at every
 λ ≥ 0.9. Not a "higher w is better" story — w=2.0 specifically wins here.
+
+### 23:22 — `sofa` CONTRADICTS the "w=1.5 is a bad weight" read from `car`/`jacket`
+
+`sofa`/seed 1234, w=1.5 and w=2.0 both complete to λ=1.0 (job 999855 was preempted/requeued starting
+w=3.0, no points lost — see Run log). At λ=1.0, where the untilted baseline has already collapsed into
+pure abstraction (bold red/navy bars, no furniture), **BOTH w=1.5 and w=2.0 are clearly a sofa** —
+cushions, armrests, legs, throw pillows, legible at both weights.
+
+So `w=1.5` is the worst weight on `car`/`jacket` and TIED-BEST on `sofa`. There is no single weight that
+wins across prompts so far, and no clean monotonic trend. What IS consistent across all three prompts:
+**some CFG weight beats the untilted baseline** (`car`→w=2.0; `jacket`→w=2.0; `sofa`→w=1.5 and w=2.0).
+What is NOT yet supportable: a claim about *which* weight, or a dose-response in $w$. The "w=2.0 is the
+standout, w=1.5 is anomalously bad" framing two sections up was written off two prompts and does not
+survive a third — treat it as superseded, not as the finding.
 
 ### Gate decision: LAUNCHED the remaining 5 seed-3141 jobs at 23:01
 
