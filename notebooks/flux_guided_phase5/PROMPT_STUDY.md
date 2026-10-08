@@ -39,9 +39,9 @@ once the winner has **both** exited `COMPLETED` and written 6 points per arm.
 
 ## First-wave findings (flow_guided, 5 runs complete)
 
-- **The usable window is roughly lambda in [0.2, 0.6], breaking by 0.8** — far narrower than dog's
-  (recognizable to 2.36 on seed 1234). Breakdown is strongly prompt-dependent, so `lambda <= 1` was the
-  right ceiling and wave B's 0.1 spacing is where the signal is.
+- ~~**The usable window is roughly lambda in [0.2, 0.6], breaking by 0.8.**~~ **WRONG — corrected
+  below once `jacket` finished.** That reading came from three prompts at 0.2 spacing and did not
+  generalize. See "Breakdown is prompt-dependent by >2x".
 - **`teapot` is the cleanest case**: s1234 at 0.4 is a geometric-patterned ceramic teapot, still
   unmistakably a teapot; s3141 at 0.2 a carved swirl form, at 0.6 a faceted sculpture.
 - **`jacket` renders a PERSON wearing a jacket at lambda=0**, and the tilt *removes the person* — by 0.4
@@ -56,3 +56,39 @@ once the winner has **both** exited `COMPLETED` and written 6 points per arm.
 - **lambda_s is strongly prompt-dependent**: car 106.87, teapot 70.75, jacket 70.38, against dog's
   81.016 — a 1.5x spread, and 13-32% away from dog, i.e. past the old hard-coded preflight tolerance.
   Recorded per prompt in `lam_s_by_prompt.json`.
+
+## Both arms, both waves (`prompt_study_grid.png`, `render_prompt_study.py`)
+
+### Breakdown is prompt-dependent by >2x
+
+Read on the decoded images, not on f:
+
+| prompt | seed | last recognizable lambda (C=0) | f at lambda=1 (C=0) |
+|---|---|---|---|
+| teapot | 1234 | ~0.6 | 7.74 |
+| teapot | 3141 | ~0.8 | 6.84 |
+| jacket | 1234 | **1.0 (never breaks in range)** | 3.45 |
+| jacket | 3141 | **1.0 (never breaks in range)** | 4.83 |
+
+`jacket` is still a clearly-rendered garment at lambda=1 — C=1 s3141 at lambda=1 is a black varsity
+jacket reading "TOM COUR PARIS", and at 0.6 a leopard-print hooded jacket. `teapot` is destroyed by
+0.7-0.9. So the earlier "[0.2, 0.6]" claim was a teapot/car statement, exactly the way CLAUDE.md's
+"[0.4, 3.54]" turned out to be a seed-1234 statement. **The window is a property of the (prompt, seed,
+z0) triple, not of the method.**
+
+### A hypothesis worth one experiment, NOT a finding
+
+Across these four runs the prompts that survive longest are the ones whose f grows *slowest*
+(jacket 3.45/4.83 at lambda=1 and intact; teapot 6.84/7.74 and destroyed). That is the opposite
+direction from "high f = more novelty = better", and it is only n=2 prompts. CLAUDE.md already records
+that f does not predict recognizability *across seeds*; whether the f growth RATE predicts it across
+prompts is untested. Do not build anything on it without a deliberate check.
+
+### C=1 vs C=0: novelty replicates, window does not
+
+Same conclusion as the dog runs, now on new prompts. At matched lambda the corrector reaches
+consistently higher f (teapot s1234 at lambda=1: 15.66 vs 7.74; jacket s1234: 6.96 vs 3.45) and
+produces more decisively designed images at LOW lambda -- teapot C=1 at 0.1/0.3 is a striped
+lantern-like vessel where C=0 is still a near-photo. But on teapot it also breaks slightly EARLIER
+(C=1 losing the form by ~0.5 where C=0 holds to ~0.6). Consistent with CLAUDE.md: the corrector buys
+novelty per lambda, not a wider window.
