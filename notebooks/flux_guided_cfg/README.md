@@ -331,6 +331,30 @@ Second prompt (after `car`) where a higher CFG weight measurably delays visible 
 the untilted baseline — replicates the direction, though `A dog`/3141 only has w=1 and w=3 (no w=1.5/2.0
 run), so it cannot say whether w=2.0 would have done even better here, the way it did on `car`/`jacket`.
 
+### 00:16 — `teapot`/1234 complete (job 1000940, clean exit): NO EDGE in this λ range, at any weight
+
+All four weights (w=1, 1.5, 2.0, 3.0) are still recognizably a teapot at λ=1.0 — spout, handle, lid knob
+all legible, heavily stylized but structurally intact throughout. Joins `A dog`/1234 as a prompt where
+0–1.0 simply does not reach the breakdown point, at ANY weight tested. **Do not count this as a fifth
+"CFG beats baseline" data point** — there is no baseline failure to beat here, the same caveat as `A dog`
+above.
+
+### Scorecard so far (cells with an actual edge to test)
+
+| prompt | seed | result |
+|---|---|---|
+| `car` | 1234 | w=2.0 best (survives to 1.0); w=1.5 worst (breaks 0.8→0.9) |
+| `jacket` | 1234 | w=2.0 best (legible at 1.0); w=1.5 worst (breaks 0.7→0.8); w=3.0 also degrades by 1.0 |
+| `sofa` | 1234 | w=1.5 ≈ w=2.0 tied-best (both survive to 1.0, baseline breaks by 1.0); w=3.0 re-running after preemption |
+| `A dog` | 3141 | w=3.0 beats w=1 at λ=0.8 (only w=1,3 tested on this prompt/seed) |
+
+No edge in range (uninformative on breakdown, not a null result for CFG): `A dog`/1234, `teapot`/1234.
+Pending: `building`/1234, all five seed-3141 prompts other than `A dog`.
+
+Of four cells with a genuine edge and full weight coverage, three point to **w=2.0 as best-or-tied-best**
+(`car`, `jacket`, `sofa`); `A dog`/3141 only has w=1,3 so cannot confirm or deny w=2.0 there specifically,
+but does confirm the direction (higher w delays breakdown vs. the untilted baseline).
+
 ### Gate decision: LAUNCHED the remaining 5 seed-3141 jobs at 23:01
 
 Per standing instruction ("read images, auto-launch if positive"). Justification at the time: w=1.5
