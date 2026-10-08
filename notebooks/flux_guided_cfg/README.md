@@ -135,6 +135,7 @@ seed 1234 alone is ~48.3 GPU-h over 7.
 | 2026-10-08 21:04 | 1001012 (`a-dog` B, w=1.5+2.0) and 999853 (`car`, w=1.5/2.0/3.0) COMPLETED clean, seed 1234 | full data through λ=1.0 on both; see Findings. |
 | 2026-10-08 23:01 | gate: launched 1001949–1001957, the 5 remaining seed-3141 jobs (`a-dog` B, `sofa`, `teapot`, `building`, `jacket`) | see "Gate decision" in Findings. |
 | 2026-10-08 23:18 | 999855 (`sofa`, seed 1234) preempted mid-w=3.0, CUDA OOM warnings in the 90s before the kill (another job landing on the same GPU, not a leak), auto-requeued unpinned | **no results lost** — w=1.5 and w=2.0 arms both fully complete (11/11 each) on disk before the kill; only the in-flight w=3.0 point is repeated. |
+| 2026-10-09 00:40 | 999855's requeue sat 42 min reading 343 MB (~0.14 MB/s, state `D`) sharing n-801 with two seed-3141 jobs | relocated via `scancel` + resubmit `--w 3.0` only (1002445, `--exclude=n-801`, landed n-803 immediately). Scoped to w=3.0 so the already-complete w=1.5/w=2.0 result files are untouched. The two seed-3141 jobs left in place on n-801 (`a-dog` B, `sofa`) — confirmed progressing at ~2.3 MB/s (13/32 GB), slow but not stalled; relocating would discard that read for no gain. |
 
 ### Pinning vs. memory — pin to spread, but memory decides
 
