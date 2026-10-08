@@ -355,6 +355,28 @@ Of four cells with a genuine edge and full weight coverage, three point to **w=2
 (`car`, `jacket`, `sofa`); `A dog`/3141 only has w=1,3 so cannot confirm or deny w=2.0 there specifically,
 but does confirm the direction (higher w delays breakdown vs. the untilted baseline).
 
+### 00:19 — `building`/1234 complete (job 1000944, clean exit): ALSO no edge in range
+
+Checked the strongest weight (w=3.0) at λ=1.0: still a clean, fully intact building facade illustration.
+Third prompt with no breakdown anywhere in 0–1.0 at any weight, joining `A dog` and `teapot`. **Half of the
+six seed-1234 prompts (`A dog`, `teapot`, `building`) simply never reach breakdown in this λ range at any
+weight** — a property of the λ lattice (inherited from Phase 5's prompt study), not a result about CFG.
+
+### SEED 1234 COMPLETE (all 7 jobs). Final scorecard:
+
+| prompt | edge in 0–1.0? | result |
+|---|---|---|
+| `car` | yes | w=2.0 best (survives to 1.0); w=1.5 worst (breaks 0.8→0.9) |
+| `jacket` | yes | w=2.0 best (legible at 1.0); w=1.5 worst (breaks 0.7→0.8); w=3.0 also degrades by 1.0 |
+| `sofa` | yes | w=1.5 ≈ w=2.0 tied-best (both to 1.0, baseline breaks by 1.0); w=3.0 re-sweeping after preemption |
+| `A dog` | no | w=1 and w=3 both intact throughout |
+| `teapot` | no | all four weights intact throughout |
+| `building` | no | all four weights intact throughout |
+
+**Of the three prompts where the question could be asked at all, all three favor w=2.0** as best or tied
+for best. No prompt favors w=1.0 (the no-CFG baseline) or shows CFG making things uniformly worse. w=1.5
+is the one inconsistent weight — worst on two prompts, tied-best on the third.
+
 ### Gate decision: LAUNCHED the remaining 5 seed-3141 jobs at 23:01
 
 Per standing instruction ("read images, auto-launch if positive"). Justification at the time: w=1.5
