@@ -269,6 +269,29 @@ currently supports the plan's actual hypothesis (CFG beats no-CFG); `jacket` onl
 "w=1.5 is worse than w=2.0". `car`/`jacket` w=3.0 (in flight) are what distinguish a genuine dose-response
 (w=1.5 bad, w≥2 good) from a one-off at w=1.5.
 
+### 23:04 — `car`/seed 1234 COMPLETE through λ=1.0, all four weights. w=2.0 is the standout, not w=3.0.
+
+| λ | w=1 | w=1.5 | w=2.0 | w=3.0 |
+|---|---|---|---|---|
+| 0.8 | intact | intact | intact | intact |
+| 0.9 | intact (posterized) | **destroyed** | intact (stylized) | intact (clean) |
+| 1.0 | **destroyed** | — | **intact** (glitchy but a car) | **destroyed** (abstract shapes, no car) |
+
+Correcting a mid-run read: at λ=0.9 w=3.0 looked cleanest of all three CFG weights, and the text here said
+so. λ=1.0 then came in broken — w=3.0's edge matches the untilted baseline's (0.9→1.0), not an
+improvement at the top. **w=2.0 is the only weight that survives the full lattice** on `car`; w=3.0 is
+better than w=1/w=1.5 at 0.9 but not better than w=1 overall; w=1.5 is worse than everything at every
+λ ≥ 0.9. Not a "higher w is better" story — w=2.0 specifically wins here.
+
+### Gate decision: LAUNCHED the remaining 5 seed-3141 jobs at 23:01
+
+Per standing instruction ("read images, auto-launch if positive"). Justification at the time: w=1.5
+underperforming the baseline on two prompts, while w=2.0 (both prompts) and w=3.0 (`car`, up to λ=0.9)
+outperformed it — real, non-monotonic, replicated structure, not noise. `jacket`/`A dog` w=3.0 were still
+in flight; `car`'s final λ=1.0 cell (above) landed minutes after the launch decision and refines but does
+not reverse it. Jobs: `a-dog` B, `sofa`, `teapot`, `building`, `jacket`, all at seed 3141, w ∈
+{1.5, 2.0, 3.0} (`a-dog` B: 1.5, 2.0 only — its 1.0/3.0 arm already ran as part of batch 1's early start).
+
 **Not monotonic in $w$, and not yet a settled direction.** On `car`, w=1.5 hurt and w=2.0 helped, at the
 SAME λ (0.9) and the same seed. Candidate explanations, none yet distinguished: (a) CFG's effect on
 robustness is genuinely non-monotonic in $w$; (b) w=1.5 is a bad draw for this particular seed/prompt
