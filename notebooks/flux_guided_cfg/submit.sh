@@ -71,8 +71,26 @@ fi
 : "${LAM_STEP:=0.1}"
 : "${LAM_K:=0,1,2,3,4,5,6,7,8,9,10}"
 
+# NODES: optional space-separated node list, consumed ONE PER JOB in order, to guarantee this batch's
+# jobs land on distinct nodes. This is placement, not an extra resource request -- it asks for nothing
+# beyond the one GPU each job already needs, and it is the direct fix for the n-801 stall above, where
+# five of MY OWN jobs on one node page-faulted the same 32 GB checkpoint at a combined ~5 MB/s and
+# produced nothing in 3 h. Pick nodes with free GPUs first:
+#   sinfo -N -O "nodelist:12,gres:22,gresused:24,statelong:10" | grep l40s
+# A pinned job PENDS if its node fills before it starts, rather than going elsewhere -- so if anything
+# sits in PENDING for more than ~15 min, resubmit that one without NODES.
+: "${NODES:=}"
+_node_i=0
+
 sub() {   # sub <time> <name> <w-list> <prompt>
-    sbatch --time="$1" --job-name="$2" cfg_w_sweep.slurm \
+    _nodeopt=""
+    if [ -n "$NODES" ]; then
+        _node_i=$((_node_i + 1))
+        _n=$(echo "$NODES" | cut -d' ' -f"$_node_i")
+        [ -n "$_n" ] && _nodeopt="--nodelist=$_n"
+    fi
+    # shellcheck disable=SC2086  # _nodeopt is intentionally word-split (empty = no flag)
+    sbatch --time="$1" --job-name="$2" $_nodeopt cfg_w_sweep.slurm \
         --w "$3" --prompt "$4" --sweep-seed "$SEED" --lam-step "$LAM_STEP" --lam-k "$LAM_K"
     sleep "$STAGGER"
 }
