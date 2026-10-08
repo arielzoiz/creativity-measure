@@ -316,6 +316,21 @@ arm was interrupted by the 23:18 preemption and is requeued; it is the single mo
 point for telling "sofa's tie was real" from "sofa's w=3.0 would also have lost, like car/jacket's did at
 the very top".
 
+### 23:28 — first seed-3141 data: `A dog`/3141, w=3.0 beats w=1 at λ=0.8, both break by 1.0
+
+Seed 3141 is the DOCUMENTED fast-breaking seed for this prompt (repo finding: dies by λ≈1.0 vs seed
+1234's ≈2.4), so unlike seed 1234's `A dog` run (never broke, uninformative) this one has a real edge to
+test. Job 1001059, clean exit, w=1.0 and w=3.0 both complete to λ=1.0:
+
+| λ | w=1 | w=3.0 |
+|---|---|---|
+| 0.8 | intact but noticeably off-prompt (drifted into a rabbit/human-hybrid face, not really "a dog") | **intact, clearly a photorealistic dog, no distortion** |
+| 1.0 | destroyed, pure abstract shapes | destroyed, different abstract pattern |
+
+Second prompt (after `car`) where a higher CFG weight measurably delays visible degradation relative to
+the untilted baseline — replicates the direction, though `A dog`/3141 only has w=1 and w=3 (no w=1.5/2.0
+run), so it cannot say whether w=2.0 would have done even better here, the way it did on `car`/`jacket`.
+
 ### Gate decision: LAUNCHED the remaining 5 seed-3141 jobs at 23:01
 
 Per standing instruction ("read images, auto-launch if positive"). Justification at the time: w=1.5
