@@ -255,9 +255,19 @@ read the per-weight table below, not a one-line verdict.)*
 
 | prompt | w=1 | w=1.5 | w=2.0 | w=3.0 |
 |---|---|---|---|---|
-| `car` | breaks 0.9→1.0 | breaks 0.8→0.9 (**worse**) | **survives past 1.0** (better — still a car at λ=1.0, albeit glitchy) | pending |
-| `jacket` | never breaks, ≤1.0 | breaks 0.7→0.8 (**worse**) | pending | pending |
-| `A dog` | never breaks, ≤1.0 | — | — | pending (likely uninformative: w=1 already survives the whole lattice here, so neither arm has anywhere to fail) |
+| `car` | breaks 0.9→1.0 | breaks 0.8→0.9 (**worse**) | **survives past 1.0** (still a car at λ=1.0, albeit glitchy) | in progress (λ=0.4 as of 22:09) |
+| `jacket` | never breaks, ≤1.0 | breaks 0.7→0.8 (**worse**) | **survives past 1.0** (legible garment silhouette at λ=1.0, heavily stylized) | in progress |
+| `A dog` | never breaks, ≤1.0 | — | — | **confirmed never breaks, ≤1.0** — COMPLETED (job 1000783, clean exit). Uninformative on breakdown: w=1 already survives the whole lattice here, so neither arm has anywhere to fail. $w=3$'s $\text{cfg\_norm\_ratio}$ is 1.04–1.05, ~5x w=1.5/2.0's ~1.01, confirming displacement scales with $(w-1)$ as the preflight field-separation measurement predicted. |
+
+**22:09 update — w=2.0 beats w=1.5 on BOTH prompts tested, consistently.** `jacket` w=2.0 holds a legible
+garment silhouette (collar, sleeves, a stylized back graphic) through λ=1.0, where w=1.5 had already
+broken by λ=0.8. That is a real, replicated non-monotonicity in $w$ — two prompts, same direction —
+independent of whether w=2.0 beats the untilted baseline. Caveat: `jacket`'s own w=1 ALSO never breaks in
+0–1.0 (matches the repo's existing prompt-study finding for this prompt), so `jacket` cannot test
+"w=2.0 beats w=1" the way `car` can — there is no baseline failure point to compare against. Only `car`
+currently supports the plan's actual hypothesis (CFG beats no-CFG); `jacket` only supports
+"w=1.5 is worse than w=2.0". `car`/`jacket` w=3.0 (in flight) are what distinguish a genuine dose-response
+(w=1.5 bad, w≥2 good) from a one-off at w=1.5.
 
 **Not monotonic in $w$, and not yet a settled direction.** On `car`, w=1.5 hurt and w=2.0 helped, at the
 SAME λ (0.9) and the same seed. Candidate explanations, none yet distinguished: (a) CFG's effect on
