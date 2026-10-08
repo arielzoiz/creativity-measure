@@ -129,15 +129,34 @@ seed 1234 alone is ~48.3 GPU-h over 7.
 
 | date | jobs | what |
 |---|---|---|
-| 2026-10-08 | 999852 (`a-dog` A, w=1.0+3.0, t-806), 999853 (`car`, n-803), 999855 (`sofa`, n-801), 999856 (`jacket`, n-805) | seed 1234 batch 1. 999854 was `jacket` pinned to n-804, which filled between the `sinfo` check and submission; cancelled and resubmitted as 999856 on n-805. |
+| 2026-10-08 | 999852 (`a-dog` A, w=1.0+3.0, t-806), 999853 (`car`, n-803), 999855 (`sofa`, n-801), 1000244 (`jacket`, t-806) | seed 1234 batch 1. `jacket` took two tries to place — see "Pinning vs. memory" below. |
+
+### Pinning vs. memory — pin to spread, but memory decides
 
 Jobs are pinned one per node via `NODES=`. This is placement, not an extra resource request, and it is
 the direct fix for the **n-801 stall**: five of *our own* jobs on one node page-faulted the same 32 GB
 checkpoint at a combined ~5 MB/s and produced nothing in 3 h, while a lone equally-cold job on n-803
 finished setup in 40 min (`../flux_guided_phase5/PROMPT_STUDY.md`). It is contention, not cold cache —
-hence batches of ≤4, with batch 2 submitted only once batch 1 is past setup. A pinned job *pends* if its
-node fills before it starts rather than going elsewhere, so anything in PENDING past ~15 min should be
-resubmitted without `NODES`.
+hence batches of ≤4, with batch 2 submitted only once batch 1 is past setup.
+
+**But a pinned job pends forever if its node cannot take it, and GPUs are not what decide that.**
+`jacket` was first pinned to n-804 (999854), which filled between the `sinfo` check and the submission;
+repinned to n-805 (999856), which pended on `(Resources)` *despite a free GPU and 90 idle CPUs*. The
+reason, and the reusable lesson:
+
+    sinfo -N -O "nodelist:10,cpusstate:18,memory:10,allocmem:10,gres:18,gresused:22" | grep l40s
+
+n-805 showed `MEMORY=515600  ALLOCMEM=508752` — **6.8 GB of Slurm-allocatable memory left**, against this
+job's `--mem=24000`. Only t-806 qualified cluster-wide (6 free GPUs, ~1.2 TB unallocated; it is a 1.5 TB
+node where the others are 512 GB). This is CLAUDE.md's "memory, not GPUs, is what blocks these jobs",
+with one refinement worth keeping: **`FREE_MEM` is the OS's figure and is misleading** — n-805 reported
+`FREE_MEM=318400` while having 6.8 GB schedulable. Compare `ALLOCMEM` against `MEMORY`, never `FREE_MEM`.
+
+Resubmitted **unpinned** as 1000244, which is strictly better once memory is the binding constraint:
+Slurm places it on the one node that fits and will pick a better one if it frees first. It landed on
+t-806 next to `a-dog` A — two jobs sharing a node during setup, which is mild against the five that
+caused the measured stall. **Rule: pin to spread while nodes have headroom; drop the pin the moment a job
+pends, and check `ALLOCMEM` before concluding anything about why.**
 
 20–90 min of silence before the first λ point is **normal** — setup is NFS-bound (32 GB of mmap'd
 safetensors off `$WORK`; the checkpoint is fully cached there, so nothing downloads). Confirm with
