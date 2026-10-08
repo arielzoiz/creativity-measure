@@ -129,7 +129,8 @@ seed 1234 alone is ~48.3 GPU-h over 7.
 
 | date | jobs | what |
 |---|---|---|
-| 2026-10-08 | 999852 (`a-dog` A, w=1.0+3.0, t-806), 999853 (`car`, n-803), 999855 (`sofa`, n-801), 1000244 (`jacket`, t-806) | seed 1234 batch 1. `jacket` took two tries to place — see "Pinning vs. memory" below. |
+| 2026-10-08 16:47 | 999852 (`a-dog` A, w=1.0+3.0, t-806), 999853 (`car`, n-803), 999855 (`sofa`, n-801), 1000244 (`jacket`, t-806) | seed 1234 batch 1. `jacket` took two tries to place — see "Pinning vs. memory". |
+| 2026-10-08 17:46 | 999852, 1000244 preempted on t-806, auto-requeued | ~1.8 GPU-h of setup lost, no results (both still in setup). 999853/999855 on separate nodes unaffected. See "Preemption is structural". |
 
 ### Pinning vs. memory — pin to spread, but memory decides
 
@@ -157,6 +158,41 @@ Slurm places it on the one node that fits and will pick a better one if it frees
 t-806 next to `a-dog` A — two jobs sharing a node during setup, which is mild against the five that
 caused the measured stall. **Rule: pin to spread while nodes have headroom; drop the pin the moment a job
 pends, and check `ALLOCMEM` before concluding anything about why.**
+
+### Preemption is structural on L40S, so SETUP COST is the thing to attack
+
+At 17:46:21 **both** t-806 jobs were killed in the same instant — `slurmstepd: error: *** JOB <id> ON
+t-806 CANCELLED ... DUE TO PREEMPTION ***` — and auto-requeued (`Requeue=1 Restarts=1`, same job IDs, so
+a watchdog survives). t-806 itself was healthy (`allocated`, reason `none`); a higher-priority job simply
+took the GPUs. Cost: ~59 + ~49 min of setup. **Nothing else was lost** — neither had reached a λ point, so
+no results file existed and the resume path correctly started fresh.
+
+Two things this establishes.
+
+**1. Co-location means CORRELATED preemption.** The pinning rationale above was about NFS bandwidth;
+preemption is a second, independent reason to spread. The two jobs on separate nodes (n-803, n-801) were
+untouched and ran straight through. Spread for both reasons.
+
+**2. We cannot escape it, because L40S implies `killable`.**
+
+    sinfo -N -n n-801,t-806 -o "%.10N %.22P %.12T"     # -> killable*, for every L40S node
+
+The L40S nodes exist *only* in `killable` (`PreemptMode=REQUEUE`). The non-killable partitions this
+account can reach — `gpu-b200`, `gpu-h200`, both 5-day — are **different GPU models**, and a GPU change
+alone shifts $f$ by 16% of $\operatorname{std}_{p}(f)$ (job 697271), which is the same order as the effect
+being measured. Every stored w=1 baseline is `NVIDIA L40S`. So moving partitions would mean re-running
+every baseline, and preemption is simply the price of comparability.
+
+**Therefore the leverage is in setup, not in scheduling.** Each requeue currently re-pays ~50 min of NFS
+checkpoint read plus ~19 min of cold reference-bank build. Two optimizations already named in CLAUDE.md
+would cut that, and this incident is the concrete argument for prioritizing them:
+  - **persist the `score_bank`** (1.46 GB at R=64, keyed on the base process plus
+    `gammas`/`num_eps`/`dist_seed`) — CLAUDE.md's "standing optimization"; note its warning that taking
+    the model out of the chain for the scores is what broke job 697271;
+  - **node-local staging of the checkpoint to `/tmp`** under `flock`, as the Algorithm 3 flowmap jobs do
+    — with the documented caveats: verify the staged file *count*, not just that `model_index.json`
+    exists, and beware a second job `rm -rf`-ing the first's in-progress 32 GB copy.
+Neither was attempted mid-flight.
 
 20–90 min of silence before the first λ point is **normal** — setup is NFS-bound (32 GB of mmap'd
 safetensors off `$WORK`; the checkpoint is fully cached there, so nothing downloads). Confirm with
