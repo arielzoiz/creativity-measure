@@ -378,6 +378,23 @@ weight** — a property of the λ lattice (inherited from Phase 5's prompt study
 for best. No prompt favors w=1.0 (the no-CFG baseline) or shows CFG making things uniformly worse. w=1.5
 is the one inconsistent weight — worst on two prompts, tied-best on the third.
 
+### 01:05 — `car`/3141 complete (job 1001064, clean exit): replicates the direction, via a DIFFERENT failure mode
+
+Seed 3141 breaks much earlier on `car` than seed 1234 did, and via **prompt drift** rather than visual
+collapse: at λ=0.7 the untilted baseline renders a cartoon anime girl — not a car at all, coherent image,
+wrong subject — the same failure mode seen on `A dog`/3141's λ=0.8 rabbit/human-hybrid face. By λ=0.8 it
+has also become pure abstraction.
+
+w=2.0 at λ=0.7 is still clearly car-related (an engine-bay/headlight assembly, line-art style) — on-prompt
+where the baseline had already drifted off it. w=2.0 itself drifts off-prompt by λ=1.0 (a stylized human
+figure with hat and sunglasses), so it is not immune, only delayed by roughly one λ step.
+
+**This replicates the DIRECTION (CFG at elevated w delays breakdown) via a mechanism distinct from what
+`car`/`jacket`/1234 showed** (there, failure was legibility collapsing into visual noise; here it is the
+subject itself drifting to something else entirely while staying figuratively coherent). Breakdown is not
+one phenomenon, and "CFG delays breakdown" may need to be read as "delays whichever failure mode this
+particular trajectory would have hit first," not a single mechanism.
+
 ### Gate decision: LAUNCHED the remaining 5 seed-3141 jobs at 23:01
 
 Per standing instruction ("read images, auto-launch if positive"). Justification at the time: w=1.5
