@@ -301,6 +301,21 @@ What is NOT yet supportable: a claim about *which* weight, or a dose-response in
 standout, w=1.5 is anomalously bad" framing two sections up was written off two prompts and does not
 survive a third — treat it as superseded, not as the finding.
 
+### 23:26 — `jacket` COMPLETE through λ=1.0 (job 1000244, clean exit). w=2.0 confirmed standout, w=3.0 degrades badly here.
+
+| λ | w=1 | w=1.5 | w=2.0 | w=3.0 |
+|---|---|---|---|---|
+| 0.8 | intact | destroyed | intact | intact |
+| 1.0 | never breaks (≤1.0) | — | **intact**, legible silhouette + back graphic | **blurred**, barely a silhouette, zipper/pockets gone |
+
+Unlike `car` (w=3.0 fine through 0.9, breaks only at 1.0), `jacket`'s w=3.0 is visibly degrading well
+before 1.0 (f jumps 3.0→6.6 between λ=0.8 and 0.9). **w=2.0 is now 2-for-2 as best-or-tied-best** across
+the three prompts with substantial data (`car`, `jacket`, `sofa`) — the first consistent cross-prompt
+signal tonight, after w=1.5 flipped from worst (`car`/`jacket`) to tied-best (`sofa`). `sofa`'s own w=3.0
+arm was interrupted by the 23:18 preemption and is requeued; it is the single most informative remaining
+point for telling "sofa's tie was real" from "sofa's w=3.0 would also have lost, like car/jacket's did at
+the very top".
+
 ### Gate decision: LAUNCHED the remaining 5 seed-3141 jobs at 23:01
 
 Per standing instruction ("read images, auto-launch if positive"). Justification at the time: w=1.5
