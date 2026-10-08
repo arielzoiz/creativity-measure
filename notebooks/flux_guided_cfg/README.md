@@ -369,7 +369,7 @@ weight** — a property of the λ lattice (inherited from Phase 5's prompt study
 |---|---|---|
 | `car` | yes | w=2.0 best (survives to 1.0); w=1.5 worst (breaks 0.8→0.9) |
 | `jacket` | yes | w=2.0 best (legible at 1.0); w=1.5 worst (breaks 0.7→0.8); w=3.0 also degrades by 1.0 |
-| `sofa` | yes | w=1.5 ≈ w=2.0 tied-best (both to 1.0, baseline breaks by 1.0); w=3.0 re-sweeping after preemption |
+| `sofa` | yes | **all three CFG weights beat baseline** — w=1.5, w=2.0, w=3.0 all intact to 1.0, baseline destroyed by 1.0 |
 | `A dog` | no | w=1 and w=3 both intact throughout |
 | `teapot` | no | all four weights intact throughout |
 | `building` | no | all four weights intact throughout |
@@ -394,6 +394,16 @@ figure with hat and sunglasses), so it is not immune, only delayed by roughly on
 subject itself drifting to something else entirely while staying figuratively coherent). Breakdown is not
 one phenomenon, and "CFG delays breakdown" may need to be read as "delays whichever failure mode this
 particular trajectory would have hit first," not a single mechanism.
+
+### 02:27 — `sofa`/1234 COMPLETE across all four weights (job 1002445, clean exit): ALL THREE CFG weights beat baseline
+
+| λ | w=1 | w=1.5 | w=2.0 | w=3.0 |
+|---|---|---|---|---|
+| 1.0 | **destroyed** (abstract red/navy bars) | intact | intact | **intact** (armrests, cushions, legs, textured upholstery) |
+
+Supersedes the earlier "w=1.5 ≈ w=2.0 tied-best" framing, written before w=3.0 finished: it is a
+**three-way tie**, not two. Cleanest result of the night — on this prompt, EVERY CFG weight tested beats
+the untilted baseline, not just one.
 
 ### Gate decision: LAUNCHED the remaining 5 seed-3141 jobs at 23:01
 
