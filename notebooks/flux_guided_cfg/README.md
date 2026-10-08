@@ -198,6 +198,51 @@ Neither was attempted mid-flight.
 safetensors off `$WORK`; the checkpoint is fully cached there, so nothing downloads). Confirm with
 `read_bytes` in `/proc/<pid>/io` via `srun --overlap` if unsure, never by assuming a hang.
 
+## Measured during the runs (model properties, not outcomes)
+
+These are preflight/diagnostic measurements. They are **not** findings about whether CFG helps — that
+question is answered only by the decoded images, below.
+
+**The reward is exactly the stored one.** `λ_s` reproduced its registry value to **rel 0.00%** on every
+prompt checked (`car` 106.874, `jacket` 70.376), and `f(x_refs) = 0.984375 = 63/64` exactly. Importing
+Phase 3's `_build_reward_and_lam_s` rather than copying it did what it was supposed to: λ means the same
+thing in the new CFG arms as in the stored w=1 column.
+
+**The w=1 reduction holds on hardware.** Bitwise `True` at λ=0 on every job (no backward is taken there,
+so it is genuinely assertable). At λ=1 with `exact_jacobian=True`, `car` measured cross-path 1.1708e+01
+against a self-deviation floor of 1.2030e+01 — **ratio 0.97**, i.e. the two paths differ *less* than the
+same function run twice at the same seed. Per CLAUDE.md that is the signature of backend nondeterminism,
+not of a defect.
+
+**CFG costs ~2%, not ~25%.** Measured 58.41 s/guided-step against Phase 3's 57.1 s/step, i.e. ~9.7 min
+per λ point. The extra unconditional forward is ~0.25 s (8 batch-1 forwards in ~2 s during the
+field-separation check) against a step dominated by the reward's ~50 denoiser rows at batch ≤24 plus the
+backward. **This is the payoff of keeping $\hat{x}_{0}$ on $v_{\text{cond}}$**: one autograd graph, so the
+second network evaluation is ~0.4% of a step rather than doubling it.
+
+**The conditional and null fields differ almost only at t → 1, and the profile is prompt-independent.**
+$\lVert v_{c} - v_{u} \rVert / \lVert v_{c} \rVert$:
+
+| t | 0.95 | 0.75 | 0.50 | 0.25 | 0.05 |
+|---|---|---|---|---|---|
+| `car` | 27.9% | 3.8% | 5.0% | 5.3% | 4.9% |
+| `jacket` | 18.5% | 4.3% | 4.7% | 5.6% | 5.1% |
+
+The spike magnitude is prompt-dependent; the tail is a flat ~5% for both, at every t ≤ 0.75. Since
+$\lVert v_{\text{CFG}} - v_{\text{cond}} \rVert = (w-1)\lVert v_{c} - v_{u} \rVert$ exactly, CFG's
+displacement is concentrated in the **first two schedule nodes** (t = 1.0 and 0.964 under
+`n_steps=10, shift=3.0`) and is a small constant elsewhere. Consistent with FLUX.1-dev being
+guidance-distilled: its empty-prompt branch was never trained as a null, and the prompt only strongly
+distinguishes the two fields where the latent is still essentially noise.
+
+Two consequences, both hypotheses to check against images rather than conclusions:
+  - `--cfg-t-window 1.0,0.9` should capture nearly all of the displacement while skipping the flat
+    region — a cheap follow-up if the full-trajectory runs show an effect.
+  - `cfg_norm_ratio` measured **1.0084 at w=1.5**, i.e. the transported field is 0.8% larger in norm.
+    Small, because the displacement is largely orthogonal to $v_{\text{cond}}$. This does **not** make
+    w=1.5 a no-op — a direction change compounds over 10 Euler steps — but it is a reason to expect the
+    informative arms to be at the high-$w$ end.
+
 ## Findings
 
 *(empty — the runs are in flight. Do not write anything here that was not read off the decoded images.)*
