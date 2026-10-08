@@ -33,7 +33,8 @@ THUMB = 150
 LAB_W = 150
 CAP_H = 16
 HDR_H = 22
-GROUP_GAP = 8
+GROUP_GAP = 8       # between the two seeds of one prompt
+PROMPT_GAP = 26     # between prompts
 OUT = os.path.join(HERE, "prompt_study_grid.png")
 
 
@@ -72,17 +73,28 @@ def main() -> None:
         return
 
     w = LAB_W + THUMB * len(cols)
-    h = HDR_H + len(rows) * (THUMB + CAP_H) + (len(rows) // 2) * GROUP_GAP
+    n_prompts = len(rows) // (len(ARMS) * len(SEEDS))
+    h = (HDR_H + len(rows) * (THUMB + CAP_H)
+         + n_prompts * PROMPT_GAP + n_prompts * (len(SEEDS) - 1) * GROUP_GAP)
     out = Image.new("RGB", (w, h), "white")
     d = ImageDraw.Draw(out)
     for j, lam in enumerate(cols):
         d.text((LAB_W + j * THUMB + THUMB // 3, 5), f"lam={lam:g}", fill="black")
 
+    # Two nesting levels have to be visually distinguishable, or the figure cannot be read:
+    # rows pair into (prompt, seed) -- the C=0 / C=1 comparison -- and pairs pair again into one prompt.
+    # A single separator every 2 rows makes the prompt grouping invisible, so the prompt boundary gets a
+    # thick rule plus a wider gap, and the seed boundary inside a prompt only a hairline.
     y = HDR_H
     for i, (p, s, arm, label, pts) in enumerate(rows):
-        if i % 2 == 0:
-            y += GROUP_GAP
-            d.line([(0, y - 3), (w, y - 3)], fill="#bbbbbb")
+        if i % len(ARMS) == 0:
+            new_prompt = i % (len(ARMS) * len(SEEDS)) == 0
+            y += PROMPT_GAP if new_prompt else GROUP_GAP
+            if new_prompt:
+                d.line([(0, y - 5), (w, y - 5)], fill="#444444", width=3)
+                d.text((4, y + 2), f"=== {p} ===", fill="#444444")
+            else:
+                d.line([(LAB_W, y - 3), (w, y - 3)], fill="#cccccc")
         d.text((4, y + THUMB // 2 - 14), f"{p}\ns{s}\n{label}",
                fill=("#0000aa" if arm == "flow_guided" else "#aa0000"))
         for j, lam in enumerate(cols):
