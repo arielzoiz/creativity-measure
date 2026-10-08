@@ -156,16 +156,33 @@ def main() -> None:
         print("no CFG results on disk yet (looked for cfg_sweep_results_*.json here)")
         return
 
-    # COLUMNS COME FROM THE SWEPT (CFG) ROWS ONLY. A stored baseline on a different lattice must not be
-    # allowed to invent columns -- that is what would put 0.785714 and 0.8 side by side as if they were
-    # two measurements instead of one lambda rendered twice.
-    lams: set[float] = set()
+    # COLUMNS: the swept (CFG) lambdas, PLUS any stored-baseline lambda that lies exactly on the same
+    # lattice. A baseline on a DIFFERENT lattice must never invent a column -- that is what would put
+    # 0.785714 and 0.8 side by side as if they were two measurements rather than one lambda drawn twice.
+    # But a baseline point at 0.9 on a 0.1 lattice is the same lambda the sweep will reach, and
+    # suppressing it until the sweep catches up hides exactly the high-lambda baseline cells where
+    # breakdown happens -- which is what the figure is for. So: on-lattice extends, off-lattice snaps.
+    swept: set[float] = set()
     for slug, seed in groups:
         for w in found[(slug, seed)]:
-            lams |= set(found[(slug, seed)][w][0])
-    cols = sorted(lams)
+            swept |= set(found[(slug, seed)][w][0])
+    cols = sorted(swept)
     spacing = min((b - a for a, b in zip(cols, cols[1:])), default=0.1)
     tol = args.snap_tol if args.snap_tol is not None else 0.49 * spacing
+
+    def _on_lattice(lam: float) -> bool:
+        """True iff lam is an integer multiple of the swept lattice spacing."""
+        k = lam / spacing
+        return abs(k - round(k)) < 1e-6
+
+    extra: set[float] = set()
+    for slug, seed in groups:
+        for lam in baseline_row(slug, seed)[0]:
+            if lam not in swept and _on_lattice(lam):
+                extra.add(lam)
+    if extra:
+        print(f"  baseline-only columns (on-lattice, not yet swept): {sorted(round(v, 4) for v in extra)}")
+    cols = sorted(swept | extra)
 
     # rows: (slug, seed, w, points, stamp, is_baseline)
     rows: list[tuple[str, int, float, dict[float, dict], dict, bool]] = []
