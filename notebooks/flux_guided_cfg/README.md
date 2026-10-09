@@ -452,6 +452,14 @@ counterexample from "CFG sometimes hurts across the board" to "there is a per-ca
 hurts, and it is not the same $w$ for every prompt or seed" — which is a harder result to act on (no
 single safe $w$) but a more precise one.
 
+### 04:47 — `A dog`/3141 complete across all four weights (job 1001949, clean exit): clean 4-way replication, w=2.0 again best
+
+At λ=0.8 (w=1 already off-prompt, w=3 already confirmed clean — see above): **w=1.5** is on-prompt but
+textured/noisy around the fur; **w=2.0** is the sharpest and cleanest of all four — a crisp photorealistic
+dog face. Every CFG weight beats the untilted baseline here, matching `car`/`jacket`/`sofa` on seed 1234,
+and w=2.0 again stands out as best — now 4-for-4 as best-or-tied-best across every prompt with full weight
+coverage (`car`, `jacket`, `sofa`, `A dog`/3141).
+
 ### Gate decision: LAUNCHED the remaining 5 seed-3141 jobs at 23:01
 
 Per standing instruction ("read images, auto-launch if positive"). Justification at the time: w=1.5
