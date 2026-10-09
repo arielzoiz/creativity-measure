@@ -250,11 +250,50 @@ Two consequences, both hypotheses to check against images rather than conclusion
 
 ## Findings
 
-*(w=3.0 still in flight on `car`/`jacket`; `jacket` w=2.0 not yet reached. Everything below was read off
-the decoded PNGs. CORRECTION 21:41: an earlier version of this section called the result "w=1.5 narrows
-the window, falsified" based on `car`+`jacket` at w=1.5 only. `car`'s own w=2.0 arm then came in and
-SURVIVED past where both w=1 and w=1.5 failed — the opposite direction. The result is NOT YET SETTLED;
-read the per-weight table below, not a one-line verdict.)*
+**ALL 11 JOBS COMPLETE as of 06:28, both seeds, all clean exits (0:0), zero results lost across two
+preemptions.** Everything below was read off the decoded PNGs, never from f/hf/||x|| alone — see
+"How to read a result" above for why. The narrative is left in chronological order (several early
+readings were later corrected or reframed by more data; the corrections are left in place rather than
+silently edited out, since the corrections themselves are part of what this run established).
+
+### SUMMARY — read this first; the chronological log below is the evidence, not a second conclusion
+
+**The honest headline: manual CFG does NOT reliably widen the creative window, but it DOES reliably
+change WHERE and HOW breakdown happens, and the direction is prompt-and-seed-composition-dependent in a
+way no single recommended $w$ captures.**
+
+Final per-(prompt, seed) scorecard, all cells with a genuine edge to test (i.e. excluding `A dog`/1234,
+`teapot`/1234, `building`/1234, where the baseline never breaks in 0–1.0 at any weight):
+
+| prompt | seed | result |
+|---|---|---|
+| `car` | 1234 | w=2.0 survives past 1.0 (best); w=3.0 matches baseline's own breakdown (0.9→1.0); w=1.5 worse than baseline |
+| `jacket` | 1234 | w=2.0 survives past 1.0 (best); w=3.0 degrades by 1.0; w=1.5 worse than baseline |
+| `sofa` | 1234 | **all three CFG weights beat baseline** (intact to 1.0; baseline destroyed by 1.0) |
+| `A dog` | 3141 | **all four weights tested, CFG beats baseline at λ=0.8**; w=2.0 cleanest |
+| `car` | 3141 | w=2.0 beats baseline at λ=0.7 (baseline already off-prompt there); both eventually fail |
+| `jacket` | 3141 | w=2.0 cleaner than baseline; w=3.0 also holds to 1.0 — no ceiling found |
+| `sofa` | 3141 | w=3.0 beats baseline (legible but blurry vs. baseline's full abstraction) at 1.0 |
+| `teapot` | 3141 | **COUNTEREXAMPLE** — both w=2.0 and w=3.0 already broken at λ=0.8, where baseline still works |
+| `building` | 3141 | w=2.0 holds to 1.0; **w=3.0 breaks** where baseline and w=2.0 both hold — a ceiling between 2 and 3 |
+
+**7 of 9 cells favor CFG (often strongly); 2 of 9 (`teapot`/3141, `building`/3141 at w=3.0) show CFG making
+things WORSE than the untilted baseline at a matched λ.** w=2.0 is best-or-tied-best in every cell where it
+can be compared (6 of 6 cells with a w=2.0 arm), which is the single most consistent signal in the data —
+but `teapot`/3141 shows even w=2.0 can fail below a prompt's own tolerance ceiling, so "always use w=2.0"
+is not yet a safe recommendation, only the best-supported starting point.
+
+**The mechanism is not uniform.** Breakdown on `car`/`jacket`/1234 looked like legibility dissolving into
+visual noise; on `car`/`A dog`/3141 it looked like the subject drifting to something else entirely while
+staying figuratively coherent (an anime girl instead of a car, a rabbit-human face instead of a dog); on
+`teapot`/`building`/3141 it looked like CFG itself pushing a working composition into formless collapse.
+"CFG delays breakdown" is at best a per-composition statement, not a property of the method.
+
+**What this run does NOT establish:** a recommended $w$ for production use (no single $w$ was safe on
+`teapot`/3141); whether the pattern holds at $n > 1$ per cell (every comparison above is a single seed/
+weight draw — Phase 3's own seed-to-seed CV on $f$ is 14–27%, and nothing here measures CFG's own
+run-to-run variance at fixed everything-else); or whether `--cfg-t-window` (untested this session, despite
+being flagged as a cheap follow-up after the preflight's field-separation measurement) changes any of this.
 
 ### Breakdown-λ per arm, seed 1234, `n_steps=10`, λ lattice 0…1.0
 
