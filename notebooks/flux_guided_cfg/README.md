@@ -414,6 +414,28 @@ no noise overlay, same garment details more clearly resolved. Third prompt on se
 direction. `jacket`/3141's own baseline never collapses outright at this λ (consistent with `jacket`
 being a resilient prompt on seed 1234 too), so this is a "cleaner," not a "survives vs. destroyed," case.
 
+### 04:31 — `teapot`/3141 (job 1001955, clean exit): FIRST CLEAN COUNTEREXAMPLE — both w=2.0 and w=3.0 break EARLIER than baseline
+
+`teapot`/1234 never broke in 0–1.0 at any weight (no-edge prompt). `teapot`/3141 DOES break, confirming
+3141 is genuinely the faster-breaking seed here too — and gives this prompt a real edge for the first
+time.
+
+At λ=0.8 the untilted baseline is still a clean, photorealistic metal teapot (spout, handle, lid knob all
+legible). **Both w=2.0 and w=3.0 are ALREADY BROKEN at the same λ** — unstructured blurry blobs, no
+teapot, no coherent alternative subject either (unlike `car`/3141's drift into a different coherent
+subject, this is pure collapse). By λ=1.0 all three (w=1, 2, 3) have failed, but w=1 at least drifted to
+something face-like/structured while w=2/w=3 are formless.
+
+**This reverses the direction every other prompt showed tonight.** On `car`, `jacket`, `sofa` and `A dog`,
+elevated $w$ matched-or-beat the baseline at every matched λ checked. Here, at a matched λ where the
+baseline still works, BOTH CFG weights have already failed. Not a case of "everything fails and CFG fails
+slightly worse" — a genuine λ gap where no-CFG succeeds and CFG does not.
+
+**This is real counter-evidence, not noise to explain away.** Whatever mechanism makes CFG delay
+breakdown on most prompts (the module docstring's "stiffer base field" hypothesis, or possibly something
+about the specific composition each (prompt, w, seed) trajectory lands on) does not hold universally, and
+`teapot`/3141 is the cleanest demonstration that it can go the other way just as sharply.
+
 ### Gate decision: LAUNCHED the remaining 5 seed-3141 jobs at 23:01
 
 Per standing instruction ("read images, auto-launch if positive"). Justification at the time: w=1.5
