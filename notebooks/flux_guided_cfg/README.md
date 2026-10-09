@@ -460,6 +460,12 @@ dog face. Every CFG weight beats the untilted baseline here, matching `car`/`jac
 and w=2.0 again stands out as best — now 4-for-4 as best-or-tied-best across every prompt with full weight
 coverage (`car`, `jacket`, `sofa`, `A dog`/3141).
 
+### 04:49 — `jacket`/3141 complete (job 1001957, clean exit): w=3.0 also holds, no ceiling effect here
+
+w=3.0 at λ=1.0 is intact — hood, zipper, red collar lining all legible, no collapse. Unlike `teapot`/
+`building`, `jacket`/3141 shows no ceiling within the tested range: all three CFG weights hold up well at
+every λ checked. 10 of 11 jobs now complete; only `sofa`/3141 (just started its w=3.0 arm) remains.
+
 ### Gate decision: LAUNCHED the remaining 5 seed-3141 jobs at 23:01
 
 Per standing instruction ("read images, auto-launch if positive"). Justification at the time: w=1.5
