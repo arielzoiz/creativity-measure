@@ -405,6 +405,15 @@ Supersedes the earlier "w=1.5 ≈ w=2.0 tied-best" framing, written before w=3.0
 **three-way tie**, not two. Cleanest result of the night — on this prompt, EVERY CFG weight tested beats
 the untilted baseline, not just one.
 
+### 03:18 — `jacket`/3141 w=2.0 arm complete: cleaner than baseline, third seed-3141 prompt replicating the direction
+
+At λ=1.0, `jacket`/3141's untilted baseline is intact but degraded (graffiti-like noise overlaying a
+legible collar/sleeve/placket). w=2.0 at the same λ is markedly cleaner — a crisp line-art illustration,
+no noise overlay, same garment details more clearly resolved. Third prompt on seed 3141 (with `A dog`,
+`car`) where elevated $w$ matches-or-beats the baseline; no seed-3141 prompt has yet contradicted the
+direction. `jacket`/3141's own baseline never collapses outright at this λ (consistent with `jacket`
+being a resilient prompt on seed 1234 too), so this is a "cleaner," not a "survives vs. destroyed," case.
+
 ### Gate decision: LAUNCHED the remaining 5 seed-3141 jobs at 23:01
 
 Per standing instruction ("read images, auto-launch if positive"). Justification at the time: w=1.5
