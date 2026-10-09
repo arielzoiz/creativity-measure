@@ -436,6 +436,22 @@ breakdown on most prompts (the module docstring's "stiffer base field" hypothesi
 about the specific composition each (prompt, w, seed) trajectory lands on) does not hold universally, and
 `teapot`/3141 is the cleanest demonstration that it can go the other way just as sharply.
 
+### 04:44 — `building`/3141 (job 1001956, clean exit): w=3.0 breaks, w=2.0 holds — a per-prompt CEILING, not a uniform reversal
+
+Like `building`/1234, the untilted baseline never breaks in 0–1.0 here either (clean facade at λ=1.0,
+confirmed on both seeds now). But unlike `building`/1234 (all three CFG weights also held), **w=3.0 is
+broken at λ=1.0 on seed 3141** — an abstract geometric/architectural pattern, no recognizable building —
+while **w=2.0 at the same λ is a clean, intact stylized cityscape** (skyscrapers, windows, clouds).
+
+Read alongside `teapot`/3141 (where even w=2.0 already failed where baseline held), this looks less like
+"CFG is unreliable" and more like **each (prompt, seed) composition has its own tolerance ceiling for how
+much CFG extrapolation it can absorb before the extrapolation itself becomes destructive** — `teapot`/3141
+has a low ceiling (below w=2.0), `building`/3141 a higher one (between w=2.0 and w=3.0), and `car`/`jacket`
+/`sofa`/1234 apparently higher still (above w=3.0, at least at the λ values checked). This reframes the
+counterexample from "CFG sometimes hurts across the board" to "there is a per-case $w$ beyond which CFG
+hurts, and it is not the same $w$ for every prompt or seed" — which is a harder result to act on (no
+single safe $w$) but a more precise one.
+
 ### Gate decision: LAUNCHED the remaining 5 seed-3141 jobs at 23:01
 
 Per standing instruction ("read images, auto-launch if positive"). Justification at the time: w=1.5
