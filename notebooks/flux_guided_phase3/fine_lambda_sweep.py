@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -39,8 +40,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "refset_auto_r"))
 
 from creativity_measure import (                                                           # noqa: E402
-    NormalizedExpectedDistanceReward, SquaredIIDGlobalIEMDistance, log_uniform_gammas,
+    ExpectedSquaredGlobalIEMDistance, NormalizedExpectedDistanceReward,
+    SquaredIIDGlobalIEMDistance, log_uniform_gammas,
 )
+from creativity_measure.distances.base import ExpectedDistance                               # noqa: E402
 from creativity_measure.distances.edm_adapter import chunked_denoiser, edm_score_fn          # noqa: E402
 from creativity_measure.samplers.flow_guided import flow_guided_sample                                # noqa: E402
 from creativity_measure.generators.base import edm_generator                                 # noqa: E402
@@ -57,6 +60,16 @@ SWEEP_SEED = 1234          # SAME z0 for every lambda (paired), same seed as the
 
 R_REFS = 64                 # CLAUDE.md: R=64, RandomRefs, uniform weights
 N_GAMMA, NUM_EPS = 50, 1    # job 956556's G1 best-tie config, same as the notebook
+
+# --- reward_kind="brownian": the SHARED-BROWNIAN squared IEM, i.e. the estimator Algorithms 1-3 use ---
+# K = (N_GAMMA_BROWN - 1) * NUM_EPS_BROWN = 50, deliberately MATCHED to the i.i.d. path's
+# N_GAMMA * NUM_EPS = 50, so score rows, gamma-chunk count and cost per guided step are all unchanged
+# and only the estimator differs. The split favours eps over grid refinement on purpose: in the
+# Brownian estimator the gamma axis is a deterministic quadrature grid contributing NO variance (and
+# refining it does not reduce spread), so all the averaging has to come from N_eps -- the opposite of
+# the i.i.d. path, where G and N_eps are interchangeable samples and NUM_EPS=1 is fine.
+N_GAMMA_BROWN, NUM_EPS_BROWN = 11, 5
+REWARD_KINDS = ("iid", "brownian")
 PROBE_SIZE = 32
 REF_SEED, PROBE_SEED = 7, 9990
 SIGMA_MIN, SIGMA_MAX = 2e-3, 80.0
@@ -79,7 +92,29 @@ class Setup:
     stamp: dict
 
 
-def _build_reward_and_lam_s(denoiser, G, img_shape, d, dtype, device) -> tuple[NormalizedExpectedDistanceReward, float, dict]:
+def _build_reward_and_lam_s(
+    denoiser, G, img_shape, d, dtype, device, reward_kind: str = "iid",
+) -> tuple[NormalizedExpectedDistanceReward, float, dict]:
+    """The frozen normalized squared-IEM reward plus its measured lambda_s.
+
+    ``reward_kind`` selects the ESTIMATOR of D_IEM^2 and nothing else -- the reference latents
+    (REF_SEED), the probe (PROBE_SEED), R_REFS and the [gamma_lo, gamma_hi] window are identical
+    either way, so the two flavours differ only in how the gamma integral and the channel noise are
+    discretized:
+
+    - ``"iid"`` (default, unchanged): ``SquaredIIDGlobalIEMDistance`` -- G log-uniform draws with
+      importance weights, independent noise per (gamma, eps). What Phase 3/5 and the CFG sweep have
+      run so far; every stored result and the lambda_s registry's bare-prompt keys belong to it.
+    - ``"brownian"``: ``ExpectedSquaredGlobalIEMDistance`` -- a deterministic logspace GRID with
+      left-endpoint (dgamma) weights and one shared Brownian path per eps, i.e. the SAME estimator
+      Algorithms 1-3 use. Removes the reward as a confound from guided-vs-SMC comparisons.
+
+    lambda_s = 1 / std_p(f) MUST be re-measured per flavour: f's spread differs between the two, so a
+    brownian run's lambda_s is NOT comparable to a stored iid value (see pc_sweep.py's registry, which
+    is keyed on (prompt, reward_kind) for exactly this reason).
+    """
+    if reward_kind not in REWARD_KINDS:
+        raise ValueError(f"reward_kind must be one of {REWARD_KINDS}, got {reward_kind!r}")
     score_fn = edm_score_fn(denoiser, img_shape)
     gen = torch.Generator(device="cpu").manual_seed(REF_SEED)
     with torch.no_grad():
@@ -87,9 +122,20 @@ def _build_reward_and_lam_s(denoiser, G, img_shape, d, dtype, device) -> tuple[N
     S_scale = latent_refs.std().item()
     gamma_lo = max(1.0 / S_scale ** 2, 1.0 / SIGMA_MAX ** 2)
     gamma_hi = min(2.0 ** 10, 1.0 / SIGMA_MIN ** 2)
-    gammas, gweights = log_uniform_gammas(gamma_lo, gamma_hi, N_GAMMA, seed=123, dtype=torch.float32)
-    gammas, gweights = gammas.to(device), gweights.to(device)
-    dist = SquaredIIDGlobalIEMDistance(None, gammas, gweights, num_eps=NUM_EPS, seed=123, score_fn=score_fn)
+    dist: SquaredIIDGlobalIEMDistance | ExpectedSquaredGlobalIEMDistance
+    if reward_kind == "iid":
+        gammas, gweights = log_uniform_gammas(gamma_lo, gamma_hi, N_GAMMA, seed=123, dtype=torch.float32)
+        gammas, gweights = gammas.to(device), gweights.to(device)
+        dist = SquaredIIDGlobalIEMDistance(None, gammas, gweights, num_eps=NUM_EPS, seed=123,
+                                           score_fn=score_fn)
+        n_gamma, num_eps = N_GAMMA, NUM_EPS
+    else:
+        # Same window, but a GRID this time -- the idiom notebooks/refset_auto_r/auto_r_common.py uses.
+        n_gamma, num_eps = N_GAMMA_BROWN, NUM_EPS_BROWN
+        gammas = torch.logspace(math.log2(gamma_lo), math.log2(gamma_hi), n_gamma,
+                                base=2.0, dtype=torch.float32).to(device)
+        dist = ExpectedSquaredGlobalIEMDistance(None, gammas, num_eps=num_eps, seed=123,
+                                                score_fn=score_fn)
     # grad-free by construction, but torch.is_grad_enabled() alone can push kernels onto a more
     # memory-hungry path under a differentiable=True denoiser (job 957050) -- wrap regardless.
     with torch.no_grad():
@@ -102,11 +148,13 @@ def _build_reward_and_lam_s(denoiser, G, img_shape, d, dtype, device) -> tuple[N
     f_std_p = float(f_probe.std())
     lam_s = (1.0 / f_std_p) if f_std_p > 0 else float("inf")
     info = {"S_scale": S_scale, "gamma_lo": gamma_lo, "gamma_hi": gamma_hi,
-            "f_probe_mean": float(f_probe.mean()), "f_std_p": f_std_p}
+            "f_probe_mean": float(f_probe.mean()), "f_std_p": f_std_p,
+            # In the stamp so a resume can never splice two estimators into one results file.
+            "reward_kind": reward_kind, "n_gamma": n_gamma, "num_eps": num_eps}
     return reward, lam_s, info
 
 
-def dry_setup(prompt: str = PROMPT) -> Setup:
+def dry_setup(prompt: str = PROMPT, reward_kind: str = "iid") -> Setup:
     """Tiny real FluxTransformer2DModel (same recipe as tests/test_flow_guided.py), CPU, no GPU, no VAE.
 
     ``prompt`` is recorded in the stamp but NOT encoded -- this path uses random embeddings, so it has
@@ -145,12 +193,13 @@ def dry_setup(prompt: str = PROMPT) -> Setup:
     denoiser_capped = chunked_denoiser(denoiser, MAX_DENOISER_ROWS)
     G = edm_generator(denoiser_capped, img_shape=(c, h, w), sigma_min=SIGMA_MIN, sigma_max=SIGMA_MAX,
                       n_steps=N_STEPS_GEN)
-    reward, lam_s, info = _build_reward_and_lam_s(denoiser_capped, G, (c, h, w), d, dtype, device)
+    reward, lam_s, info = _build_reward_and_lam_s(denoiser_capped, G, (c, h, w), d, dtype, device,
+                                                  reward_kind)
     stamp = {"dry_run": True, "d": d, "prompt": prompt, **info}
     return Setup(device, dtype, velocity_fn, reward, d, lam_s, None, stamp)
 
 
-def flux_setup(prompt: str = PROMPT) -> Setup:
+def flux_setup(prompt: str = PROMPT, reward_kind: str = "iid") -> Setup:
     """The real FLUX.1-dev path, mirroring the notebook's cells 2-3 exactly (same reward config, same
     seeds) so lambda_s reproduces that run's measured ~81.0.
 
@@ -190,7 +239,8 @@ def flux_setup(prompt: str = PROMPT) -> Setup:
     denoiser_capped = chunked_denoiser(denoiser, MAX_DENOISER_ROWS)
     G = edm_generator(denoiser_capped, img_shape=(c, h, w), sigma_min=SIGMA_MIN, sigma_max=SIGMA_MAX,
                       n_steps=N_STEPS_GEN)
-    reward, lam_s, info = _build_reward_and_lam_s(denoiser_capped, G, (c, h, w), d, dtype, device)
+    reward, lam_s, info = _build_reward_and_lam_s(denoiser_capped, G, (c, h, w), d, dtype, device,
+                                                  reward_kind)
 
     def decode(flat: Tensor, chunk: int = 2) -> Tensor:
         outs = []
@@ -234,6 +284,59 @@ def note(msg: str) -> None:
     import resource
     rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 ** 2 if sys.platform != "darwin" else 1024 ** 3)
     print(f"[{time.strftime('%H:%M:%S')}] {msg}  (host peak RSS {rss:.1f} GB)", flush=True)
+
+
+def preflight_reward(S: Setup, *, dry_run: bool) -> dict[str, Any]:
+    """Two cheap tier-1 checks on the frozen reward. Raises; never warns.
+
+    (1) f(x_refs) == (R-1)/R for uniform weights. FREE -- the reference bank is already built, so it
+        costs no score rows. Tolerance 1e-3, NOT 0.10: the loose one cannot separate 63/64 from the
+        failure modes that land on exactly 1.0. Tests normalization wiring only.
+    (2) expected() == pairwise().mean() on the REAL backend. The closed-form reference mean is an
+        algebraic identity (parallel-axis), unit-tested to ~1e-16 in float64 on CPU -- but the thing
+        that matters here is bfloat16 conditioning at d=65536, where ||s_x - s_bar||^2 + spread is a
+        sum of same-order terms. Two independently-coded routes to one number, so a disagreement means
+        every f in this job is on the wrong scale. Costs (n_gamma-1)*num_eps*B batch score rows only
+        (the ref bank is cached), i.e. seconds.
+    """
+    out: dict[str, Any] = {}
+    if not dry_run:
+        out["gpu_name"] = torch.cuda.get_device_name(0)
+        note(f"preflight gpu: {out['gpu_name']}")
+
+    refs = S.reward.x_refs
+    with torch.no_grad():
+        f_refs = float(S.reward(refs).mean())
+    r = refs.shape[0]
+    want = (r - 1) / r
+    out["f_refs"] = f_refs
+    note(f"preflight f(refs): {f_refs:.6f} vs (R-1)/R = {want:.6f}  (R={r})")
+    if abs(f_refs - want) > 1e-3:
+        raise AssertionError(
+            f"f(x_refs) = {f_refs:.6f} but uniform weights demand exactly (R-1)/R = {want:.6f}. "
+            "The reward's normalization is mis-wired; every f in this job would be on the wrong scale."
+        )
+
+    dist = S.reward.distance
+    if not isinstance(dist, ExpectedDistance):
+        note("preflight expected-vs-pairwise: SKIPPED (distance has no closed-form `expected`)")
+        return out
+    probe = refs[:2]
+    with torch.no_grad():
+        closed = dist.expected(probe, refs, S.reward.weights)
+        pw = dist.pairwise(probe, refs)
+        matrix = pw.mean(dim=1) if S.reward.weights is None else (
+            (pw * S.reward.weights.to(pw)).sum(dim=1) / S.reward.weights.to(pw).sum())
+        rel = float(((closed - matrix).abs() / matrix.abs().clamp_min(1e-12)).max())
+    out["expected_vs_pairwise_rel"] = rel
+    note(f"preflight expected-vs-pairwise: max rel diff {rel:.3e}")
+    if rel > 1e-2:
+        raise AssertionError(
+            f"expected() and pairwise().mean() disagree by {rel:.3e} on the real backend. They are the "
+            "same quantity by the parallel-axis identity, so this is a numerical-conditioning failure "
+            "(bfloat16 at d=65536), not a tolerance to relax -- every f in this job is suspect."
+        )
+    return out
 
 
 def run_one(S: Setup, idx: int, lam: float, res: dict, sweep_seed: int) -> None:
@@ -290,28 +393,43 @@ def main() -> None:
                      help="seed for the SAME-z0-across-the-sweep initial noise (default: %(default)s). "
                           "Vary this (holding everything else fixed) to repeat the sweep on a different "
                           "random draw.")
+    ap.add_argument("--skip-preflight", action="store_true",
+                     help="skip the two tier-1 reward checks (seconds). Only for a resumed job whose "
+                          "earlier attempt already logged them PASS.")
+    ap.add_argument("--reward", choices=REWARD_KINDS, default="iid",
+                     help="which D_IEM^2 ESTIMATOR the reward uses (default: %(default)s). 'iid' is "
+                          "every run to date; 'brownian' is the shared-Brownian grid Algorithms 1-3 "
+                          "use, at a matched K=50. The flavour is appended to the results filename and "
+                          "decoded dir automatically, so a brownian run can never overwrite stored iid "
+                          "results, and lambda_s is NOT comparable across the two.")
     args = ap.parse_args()
     global RESULTS, DECODED_DIR
     n_lambdas = args.n_lambdas
     sweep_seed = args.sweep_seed
+    # Derived, never left to --tag: an untagged leg overwriting its own source is a failure this repo
+    # has already paid for (CLAUDE.md, "Resuming From a Checkpoint").
+    rsfx = "" if args.reward == "iid" else f"_{args.reward}"
     if args.dry_run:
-        RESULTS = os.path.join(HERE, "fine_lambda_sweep_results.dryrun.json")
-        DECODED_DIR = os.path.join(HERE, "fine_decoded_dryrun")
+        RESULTS = os.path.join(HERE, f"fine_lambda_sweep_results{rsfx}.dryrun.json")
+        DECODED_DIR = os.path.join(HERE, f"fine_decoded{rsfx}_dryrun")
         if os.path.exists(RESULTS):
             os.remove(RESULTS)
-    elif args.lam_max is not None or args.tag is not None:
-        tag = args.tag if args.tag is not None else f"max{args.lam_max:g}"
-        RESULTS = os.path.join(HERE, f"fine_lambda_sweep_results_{tag}.json")
-        DECODED_DIR = os.path.join(HERE, f"fine_decoded_{tag}")
+    elif args.lam_max is not None or args.tag is not None or rsfx:
+        tag = args.tag if args.tag is not None else (
+            f"max{args.lam_max:g}" if args.lam_max is not None else "")
+        sfx = f"{rsfx}{'_' + tag if tag else ''}"
+        RESULTS = os.path.join(HERE, f"fine_lambda_sweep_results{sfx}.json")
+        DECODED_DIR = os.path.join(HERE, f"fine_decoded{sfx}")
 
-    S = dry_setup() if args.dry_run else flux_setup()
-    note(f"setup ready: d={S.d}, device={S.device}, lambda_s={S.lam_s:.2f}")
+    S = dry_setup(reward_kind=args.reward) if args.dry_run else flux_setup(reward_kind=args.reward)
+    note(f"setup ready: d={S.d}, device={S.device}, reward={args.reward}, lambda_s={S.lam_s:.2f}")
+    pf = {} if args.skip_preflight else preflight_reward(S, dry_run=args.dry_run)
     lam_max = args.lam_max if args.lam_max is not None else S.lam_s
     lambdas = torch.linspace(0.0, lam_max, n_lambdas).tolist()
 
     res = load_results({**S.stamp, "n_particles": N_PARTICLES, "n_steps_ode": N_STEPS_ODE,
                         "n_lambdas": n_lambdas, "lambda_s": S.lam_s, "lam_max": lam_max,
-                        "sweep_seed": sweep_seed})
+                        "sweep_seed": sweep_seed, **pf})
     for idx, lam in enumerate(lambdas):
         run_one(S, idx, lam, res, sweep_seed)
 

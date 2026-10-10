@@ -75,8 +75,8 @@ PHASE3 = os.path.join(HERE, "..", "flux_guided_phase3")
 sys.path.insert(0, PHASE3)
 
 from fine_lambda_sweep import (   # noqa: E402  # pyright: ignore[reportMissingImports]  (sys.path above)
-    PROMPT as PROMPT_DEFAULT, N_PARTICLES, N_STEPS_ODE, SHIFT, SWEEP_SEED, Setup, dry_setup,
-    flux_setup, note,
+    PROMPT as PROMPT_DEFAULT, N_PARTICLES, N_STEPS_ODE, REWARD_KINDS, SHIFT, SWEEP_SEED, Setup,
+    dry_setup, flux_setup, note,
 )
 
 from creativity_measure.samplers.flow_guided import flow_guided_sample                     # noqa: E402
@@ -224,6 +224,18 @@ def prompt_slug(prompt: str) -> str:
     return s or "empty"
 
 
+def _lam_s_key(prompt: str, reward_kind: str = "iid") -> str:
+    """Registry key for lambda_s.
+
+    lambda_s = 1 / std_p(f) is a property of the (prompt, ESTIMATOR) pair, not of the prompt alone:
+    the shared-Brownian and i.i.d. estimators of D_IEM^2 have different f spreads by construction, so
+    a brownian run's value would trip the LAM_S_TOL assert against a stored iid one and abort the job
+    for no real reason. ``reward_kind="iid"`` keeps the BARE PROMPT as the key, so every value already
+    recorded (and LAM_S_SEED_VALUES) stays valid and Phase 3/5/CFG comparisons are untouched.
+    """
+    return prompt if reward_kind == "iid" else f"{prompt} [{reward_kind}]"
+
+
 def _lam_s_registry() -> dict[str, float]:
     reg = dict(LAM_S_SEED_VALUES)
     if os.path.exists(LAM_S_REGISTRY):
@@ -260,7 +272,8 @@ def _arm_kwargs(arm: str) -> dict[str, Any]:
     raise ValueError(f"unknown arm {arm!r}, expected one of {ARMS}")
 
 
-def preflight(S: Setup, sweep_seed: int, *, dry_run: bool, prompt: str = PROMPT_DEFAULT) -> dict[str, Any]:
+def preflight(S: Setup, sweep_seed: int, *, dry_run: bool, prompt: str = PROMPT_DEFAULT,
+              reward_kind: str = "iid") -> dict[str, Any]:
     """Tier-1 checks: everything whose failure invalidates the WHOLE job. Raises; never warns.
 
     Runs before any sweep point. Total cost ~4 min against a multi-hour sweep, and all but the last two
@@ -302,22 +315,23 @@ def preflight(S: Setup, sweep_seed: int, *, dry_run: bool, prompt: str = PROMPT_
     # run we are comparing against. A prompt with no recorded value is measured and recorded here -- it
     # cannot be asserted on its first job, by construction.
     out["lam_s"] = S.lam_s
+    out["lam_s_key"] = key = _lam_s_key(prompt, reward_kind)
     if not dry_run:
-        known = _lam_s_registry().get(prompt)
+        known = _lam_s_registry().get(key)
         if known is None:
-            note(f"preflight lambda_s: {S.lam_s:.3f} -- first run for prompt {prompt!r}, recording it "
-                 "as this prompt's reference (no assert possible on a first run)")
-            _record_lam_s(prompt, S.lam_s)
+            note(f"preflight lambda_s: {S.lam_s:.3f} -- first run for {key!r}, recording it "
+                 "as this (prompt, reward) reference (no assert possible on a first run)")
+            _record_lam_s(key, S.lam_s)
         else:
             rel = abs(S.lam_s - known) / known
-            note(f"preflight lambda_s: {S.lam_s:.3f} vs {prompt!r}'s recorded {known:.3f} "
+            note(f"preflight lambda_s: {S.lam_s:.3f} vs {key!r}'s recorded {known:.3f} "
                  f"(rel {rel:.2%})")
             if rel > LAM_S_TOL:
                 raise AssertionError(
-                    f"lambda_s = {S.lam_s:.3f} differs from the recorded value for prompt {prompt!r} "
+                    f"lambda_s = {S.lam_s:.3f} differs from the recorded value for {key!r} "
                     f"({known:.3f}) by {rel:.1%} (> {LAM_S_TOL:.0%}). The reference latents or the "
                     f"reward config diverged, so no number here is comparable to that run. If the "
-                    f"divergence is intended, delete {prompt!r} from "
+                    f"divergence is intended, delete {key!r} from "
                     f"{os.path.basename(LAM_S_REGISTRY)}."
                 )
 
@@ -593,6 +607,12 @@ def main() -> None:
     ap.add_argument("--skip-preflight", action="store_true",
                     help="skip the tier-1 on-hardware checks (~4 min). Only for a resumed job whose "
                          "earlier attempt already logged them all PASS.")
+    ap.add_argument("--reward", choices=REWARD_KINDS, default="iid",
+                    help="which D_IEM^2 ESTIMATOR the reward uses (default: %(default)s). 'iid' is "
+                         "every Phase 5 run to date; 'brownian' is the shared-Brownian grid "
+                         "Algorithms 1-3 use, at a matched K=50. Enters the results key and the "
+                         "lambda_s registry key, so it can neither overwrite nor be asserted against "
+                         "stored iid runs.")
     args = ap.parse_args()
 
     CORRECTOR_STEPS = args.corrector_steps
@@ -608,8 +628,10 @@ def main() -> None:
     if unknown or not arms:
         ap.error(f"--arm must be a comma-separated subset of {ARMS}; got {args.arm!r}")
 
-    S = dry_setup(args.prompt) if args.dry_run else flux_setup(args.prompt)
-    note(f"setup ready: arms={arms} prompt={args.prompt!r} d={S.d} device={S.device} "
+    S = (dry_setup(args.prompt, args.reward) if args.dry_run
+         else flux_setup(args.prompt, args.reward))
+    note(f"setup ready: arms={arms} prompt={args.prompt!r} reward={args.reward} d={S.d} "
+         f"device={S.device} "
          f"lambda_s={S.lam_s:.2f} n_steps={N_STEPS} corr_steps={CORRECTOR_STEPS} snr={SNR} "
          f"eta_ref={ETA_REFERENCE} lam_step={LAM_STEP:g} lam_k={lam_k} lam_grid={LAM_GRID} "
          f"z0_seed={args.z0_seed}")
@@ -619,7 +641,8 @@ def main() -> None:
     # property of the SETUP, which all arms in this job share by construction.
     pf: dict[str, Any] = {}
     if not args.skip_preflight:
-        pf = preflight(S, args.sweep_seed, dry_run=args.dry_run, prompt=args.prompt)
+        pf = preflight(S, args.sweep_seed, dry_run=args.dry_run, prompt=args.prompt,
+                       reward_kind=args.reward)
 
     for arm in arms:
         # The results key encodes EVERY axis a wave varies. Without this, two jobs differing only in
@@ -628,7 +651,9 @@ def main() -> None:
         # CLAUDE.md's "bump RUN_TAG per leg -- an untagged leg overwrites its own resume source".
         # The prompt is in here for the same reason, and it is load-bearing: a prompt is a different
         # reward, so two prompts sharing a file would silently .stale-stomp each other every job.
-        key = (f"{prompt_slug(args.prompt)}_{arm}_n{N_STEPS}_c{CORRECTOR_STEPS}_eta{ETA_REFERENCE}"
+        key = (f"{prompt_slug(args.prompt)}"
+               + (f"_{args.reward}" if args.reward != "iid" else "")
+               + f"_{arm}_n{N_STEPS}_c{CORRECTOR_STEPS}_eta{ETA_REFERENCE}"
                f"_snr{SNR:g}_s{args.sweep_seed}"
                + (f"_z{args.z0_seed}" if args.z0_seed is not None else "")
                + (f"_{args.tag}" if args.tag else "")

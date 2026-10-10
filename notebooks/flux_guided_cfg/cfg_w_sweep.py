@@ -73,14 +73,15 @@ sys.path.insert(0, PHASE5)
 
 from fine_lambda_sweep import (   # noqa: E402  # pyright: ignore[reportMissingImports]  (sys.path above)
     GUIDANCE, MAX_DENOISER_ROWS, MODEL_ID, N_PARTICLES, N_STEPS_GEN, N_STEPS_ODE, PROMPT as PROMPT_DEFAULT,
-    SHIFT, SIGMA_MAX, SIGMA_MIN, SWEEP_SEED, _build_reward_and_lam_s, note,
+    REWARD_KINDS, SHIFT, SIGMA_MAX, SIGMA_MIN, SWEEP_SEED, _build_reward_and_lam_s, note,
 )
 # Pure helpers only -- never pc_sweep's load_results/_stamp_identity, which read ITS module globals.
 # The lambda_s registry is deliberately the SAME FILE as Phase 5's: it maps prompt -> std_p(f) for this
 # exact reward config, which is the quantity both phases depend on and the thing a drift guard must
 # compare against. Two registries would let the two phases disagree silently.
 from pc_sweep import (            # noqa: E402  # pyright: ignore[reportMissingImports]
-    EXPECTED_GPU, LAM_S_TOL, _lam_s_registry, _record_lam_s, hf_power_fraction, prompt_slug,
+    EXPECTED_GPU, LAM_S_TOL, _lam_s_key, _lam_s_registry, _record_lam_s, hf_power_fraction,
+    prompt_slug,
 )
 
 from creativity_measure import NormalizedExpectedDistanceReward                             # noqa: E402
@@ -131,7 +132,7 @@ class CFGSetup:
     stamp: dict
 
 
-def dry_setup(prompt: str = PROMPT_DEFAULT) -> CFGSetup:
+def dry_setup(prompt: str = PROMPT_DEFAULT, reward_kind: str = "iid") -> CFGSetup:
     """Tiny real FluxTransformer2DModel, CPU, no VAE -- exercises the sweep/resume/preflight mechanics.
 
     The two "prompts" are two independent random embedding draws (there is no text encoder on this path),
@@ -173,12 +174,13 @@ def dry_setup(prompt: str = PROMPT_DEFAULT) -> CFGSetup:
     denoiser_capped = chunked_denoiser(denoiser, MAX_DENOISER_ROWS)
     G = edm_generator(denoiser_capped, img_shape=(c, h, w), sigma_min=SIGMA_MIN, sigma_max=SIGMA_MAX,
                       n_steps=N_STEPS_GEN)
-    reward, lam_s, info = _build_reward_and_lam_s(denoiser_capped, G, (c, h, w), d, dtype, device)
+    reward, lam_s, info = _build_reward_and_lam_s(denoiser_capped, G, (c, h, w), d, dtype, device,
+                                                  reward_kind)
     stamp = {"dry_run": True, "d": d, "prompt": prompt, "null_prompt": NULL_PROMPT, **info}
     return CFGSetup(device, dtype, velocity_fn, velocity_uncond, reward, d, lam_s, None, stamp)
 
 
-def flux_setup(prompt: str = PROMPT_DEFAULT) -> CFGSetup:
+def flux_setup(prompt: str = PROMPT_DEFAULT, reward_kind: str = "iid") -> CFGSetup:
     """Real FLUX.1-dev, mirroring Phase 3's ``flux_setup`` exactly, plus a second (null-prompt) velocity.
 
     Both prompts are encoded BEFORE the text encoders are freed (they are ~9.5 GB and must not be loaded
@@ -226,7 +228,8 @@ def flux_setup(prompt: str = PROMPT_DEFAULT) -> CFGSetup:
     denoiser_capped = chunked_denoiser(denoiser, MAX_DENOISER_ROWS)
     G = edm_generator(denoiser_capped, img_shape=(c, h, w), sigma_min=SIGMA_MIN, sigma_max=SIGMA_MAX,
                       n_steps=N_STEPS_GEN)
-    reward, lam_s, info = _build_reward_and_lam_s(denoiser_capped, G, (c, h, w), d, dtype, device)
+    reward, lam_s, info = _build_reward_and_lam_s(denoiser_capped, G, (c, h, w), d, dtype, device,
+                                                  reward_kind)
 
     def decode(flat: Tensor, chunk: int = 2) -> Tensor:
         outs = []
@@ -287,7 +290,7 @@ def save_results(res: dict) -> None:
 # =====================================================================================================
 
 def preflight(S: CFGSetup, sweep_seed: int, *, dry_run: bool, prompt: str,
-              t_window: tuple[float, float]) -> dict[str, Any]:
+              t_window: tuple[float, float], reward_kind: str = "iid") -> dict[str, Any]:
     out: dict[str, Any] = {}
 
     # (1) GPU model. Checked first because it is the only item that needs nothing from the reward, i.e.
@@ -324,18 +327,20 @@ def preflight(S: CFGSetup, sweep_seed: int, *, dry_run: bool, prompt: str,
     # without it, "CFG changed the images" and "the reward changed under me" are indistinguishable.
     out["lam_s"] = S.lam_s
     if not dry_run:
-        known = _lam_s_registry().get(prompt)
+        key = _lam_s_key(prompt, reward_kind)
+        out["lam_s_key"] = key
+        known = _lam_s_registry().get(key)
         if known is None:
-            note(f"preflight lambda_s: {S.lam_s:.3f} -- first run for prompt {prompt!r}, recording it. "
-                 "NOTE: a prompt with no recorded value has no stored w=1 column either, so there is "
-                 "nothing for render_cfg_grid.py to pair against.")
-            _record_lam_s(prompt, S.lam_s)
+            note(f"preflight lambda_s: {S.lam_s:.3f} -- first run for {key!r}, recording it. "
+                 "NOTE: a (prompt, reward) with no recorded value has no stored w=1 column either, so "
+                 "there is nothing for render_cfg_grid.py to pair against.")
+            _record_lam_s(key, S.lam_s)
         else:
             rel = abs(S.lam_s - known) / known
-            note(f"preflight lambda_s: {S.lam_s:.3f} vs {prompt!r}'s recorded {known:.3f} (rel {rel:.2%})")
+            note(f"preflight lambda_s: {S.lam_s:.3f} vs {key!r}'s recorded {known:.3f} (rel {rel:.2%})")
             if rel > LAM_S_TOL:
                 raise AssertionError(
-                    f"lambda_s = {S.lam_s:.3f} differs from the recorded value for prompt {prompt!r} "
+                    f"lambda_s = {S.lam_s:.3f} differs from the recorded value for {key!r} "
                     f"({known:.3f}) by {rel:.1%} (> {LAM_S_TOL:.0%}). The reference latents or the reward "
                     "config diverged from the stored w=1 runs, so no comparison here is meaningful."
                 )
@@ -581,6 +586,11 @@ def main() -> None:
                          "conditional velocity is used outside. Default is the whole trajectory. Narrow it "
                          "if large w over-saturates -- FLUX.1-dev is guidance-distilled and its "
                          "empty-prompt branch is not a trained null (see the module docstring).")
+    ap.add_argument("--reward", choices=REWARD_KINDS, default="iid",
+                    help="which D_IEM^2 ESTIMATOR the reward uses (default: %(default)s). 'iid' is "
+                         "every CFG run to date (and the stored w=1 columns render_cfg_grid.py pairs "
+                         "against); 'brownian' is the shared-Brownian grid Algorithms 1-3 use, at a "
+                         "matched K=50. Enters the results key and the lambda_s registry key.")
     ap.add_argument("--skip-preflight", action="store_true",
                     help="skip the tier-1 on-hardware checks (~5 min). Only for a resumed job whose "
                          "earlier attempt already logged them all PASS.")
@@ -606,8 +616,9 @@ def main() -> None:
         ap.error(f"--cfg-t-window must be t_hi,t_lo with t_hi >= t_lo (t runs 1 -> 0); got {args.cfg_t_window!r}")
     t_window = (t_hi, t_lo)
 
-    S = dry_setup(args.prompt) if args.dry_run else flux_setup(args.prompt)
-    note(f"setup ready: w={ws} prompt={args.prompt!r} d={S.d} device={S.device} "
+    S = (dry_setup(args.prompt, args.reward) if args.dry_run
+         else flux_setup(args.prompt, args.reward))
+    note(f"setup ready: w={ws} prompt={args.prompt!r} reward={args.reward} d={S.d} device={S.device} "
          f"lambda_s={S.lam_s:.2f} n_steps={N_STEPS} lam_step={LAM_STEP:g} lam_k={lam_k} "
          f"lam_grid={[round(v, 4) for v in LAM_GRID]} cfg_t_window={t_window} seed={args.sweep_seed}")
 
@@ -615,14 +626,17 @@ def main() -> None:
     # lambda_s, the field separation, the w=1 reduction) is a property of the SETUP, shared by every w.
     pf: dict[str, Any] = {}
     if not args.skip_preflight:
-        pf = preflight(S, args.sweep_seed, dry_run=args.dry_run, prompt=args.prompt, t_window=t_window)
+        pf = preflight(S, args.sweep_seed, dry_run=args.dry_run, prompt=args.prompt,
+                       t_window=t_window, reward_kind=args.reward)
 
     for w in ws:
         # The results key encodes EVERY axis a wave varies, w INCLUDED. Without w in the filename two
         # jobs differing only in --w write to the same file: the stamp check would .stale-rename rather
         # than corrupt, but each job would keep discarding the other's work -- and these jobs run
         # concurrently by design. Same lesson as CLAUDE.md's "bump RUN_TAG per leg".
-        key = (f"{prompt_slug(args.prompt)}_w{w:g}_n{N_STEPS}_s{args.sweep_seed}"
+        key = (f"{prompt_slug(args.prompt)}"
+               + (f"_{args.reward}" if args.reward != "iid" else "")
+               + f"_w{w:g}_n{N_STEPS}_s{args.sweep_seed}"
                + (f"_tw{t_hi:g}-{t_lo:g}" if t_window != (1.0, 0.0) else "")
                + (f"_{args.tag}" if args.tag else "")
                + (".dryrun" if args.dry_run else ""))

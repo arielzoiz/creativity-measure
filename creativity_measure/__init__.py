@@ -4,7 +4,7 @@ from creativity_measure.device import (
 )
 from creativity_measure.distances import (
     Distance, LpDistance, LocalIEMDistance,
-    GlobalIEMDistance, SquaredGlobalIEMDistance,
+    GlobalIEMDistance, SquaredGlobalIEMDistance, ExpectedSquaredGlobalIEMDistance,
     IIDGlobalIEMDistance, SquaredIIDGlobalIEMDistance, ExpectedDistance,
     log_uniform_gammas, simulate_iid_noise,
     GeneralizedGlobalIEMDistance, IEMFType, edm_score_fn, chunked_denoiser,

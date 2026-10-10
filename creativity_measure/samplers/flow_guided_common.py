@@ -117,7 +117,16 @@ def _reward_grad(
     if reward.weights is not None:
         raise NotImplementedError("gamma-chunked OOM fallback does not yet support non-uniform weights")
     denom = getattr(reward, "_denom", 1.0)
-    G = distance.gammas.shape[0]
+    # Length of the axis `expected_gamma_chunk` indexes. For `SquaredIIDGlobalIEMDistance` that is the
+    # gamma axis itself (POINTS), so `gammas.shape[0]` is right and stays the default -- this path is
+    # bitwise unchanged for it. `ExpectedSquaredGlobalIEMDistance` integrates over a GRID, whose
+    # N_gamma points define only N_gamma - 1 INTERVALS, and it advertises that via `n_gamma_chunks`;
+    # without the override, g_chunk=1 would emit a final (N_gamma-1, N_gamma) pair that is not a valid
+    # interval. Read structurally rather than added to `_GammaChunkable`: that Protocol is
+    # runtime_checkable, so a new required member would make the i.i.d. class fail `isinstance` and
+    # silently lose its fallback.
+    n_chunks = getattr(distance, "n_gamma_chunks", None)
+    G = int(n_chunks) if n_chunks is not None else distance.gammas.shape[0]
     chunk = g_chunk if g_chunk is not None else 1
     bounds = list(range(0, G, chunk)) + [G]
     total_grad = torch.zeros_like(grad_target)
